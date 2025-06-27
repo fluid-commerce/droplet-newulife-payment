@@ -3,7 +3,7 @@ class UPaymentsOrderPayloadGenerator
 
   def initialize(cart:, external_id:, payment_account_id:)
     @cart = ActiveSupport::HashWithIndifferentAccess.new(cart)
-    @external_id = "R#{external_id}"
+    @external_id = external_id
     @payment_account_id = payment_account_id
   end
 

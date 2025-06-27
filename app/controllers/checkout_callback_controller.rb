@@ -20,7 +20,7 @@ class CheckoutCallbackController < ApplicationController
         error_message = by_design_consumer.dig("Result", "Message")
         return render json: { redirect_url: nil, error_message: }
       end
-      consumer_external_id = by_design_consumer["RepDID"].to_s
+      consumer_external_id = "R#{by_design_consumer["RepDID"]}"
 
       # Check if customer already exists in Fluid
       fluid_customer = fluid_client.get("/api/customers?search_query=#{customer_payload.dig(:email)}&page=1&per_page=1")
@@ -92,9 +92,9 @@ private
 
   def external_id
     if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
-      "R#{callback_params[:customer][:external_id]}" # TODO: not sure whether we need to add R prefix
+      "C#{callback_params[:customer][:external_id]}" # C prefix for customers
     elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
-      "R#{callback_params[:user_company][:external_id]}"
+      "R#{callback_params[:user_company][:external_id]}" # R prefix for representatives/distributors
     end
   end
 
