@@ -8,7 +8,11 @@ class CheckoutCallbackController < ApplicationController
       external_id: consumer_external_id
     )
 
+    Rails.logger.info("CheckoutCallbackController user_check_response #{user_check_response.inspect}")
+
     user = user_check_response
+
+    Rails.logger.info("CheckoutCallbackController user_check_response.dig('status') #{user_check_response.dig('status')}")
     if user_check_response.dig("status")&.zero?
       # Create consumer in ByDesign
       by_design_consumer = ByDesign.create_consumer(
@@ -24,6 +28,7 @@ class CheckoutCallbackController < ApplicationController
 
       # Check if customer already exists in Fluid
       fluid_customer = fluid_client.get("/api/customers?search_query=#{customer_payload.dig(:email)}&page=1&per_page=1")
+      Rails.logger.info("CheckoutCallbackController fluid_customer #{fluid_customer.inspect}")
       if fluid_customer["customers"].blank?
         # Create customer in Fluid
         fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
@@ -34,12 +39,15 @@ class CheckoutCallbackController < ApplicationController
         cart: cart_payload,
         external_id: consumer_external_id
       )
+      Rails.logger.info("CheckoutCallbackController user_payload #{user_payload.inspect}")
       user_onboard_response = UPaymentsUserApiClient.onboard_consumer(payload: user_payload)
       if user_onboard_response.dig("status")&.zero?
         error_message = user_onboard_response.dig("error", "message")
         return render json: { redirect_url: nil, error_message: error_message }
       end
       user = user_onboard_response
+      Rails.logger.info("CheckoutCallbackController user #{user.inspect}")
+      user
     end
 
     order_payload = UPaymentsOrderPayloadGenerator.generate_order_payload(
@@ -47,6 +55,7 @@ class CheckoutCallbackController < ApplicationController
       external_id: consumer_external_id,
       payment_account_id: callback_params[:payment_account_id]
     )
+    Rails.logger.info("CheckoutCallbackController order_payload #{order_payload.inspect}")
 
     redirect_url_response = UPaymentsCheckoutApiClient.create_order(payload: order_payload)
     if redirect_url_response.dig("status")&.zero?
@@ -91,6 +100,8 @@ class CheckoutCallbackController < ApplicationController
 private
 
   def external_id
+    Rails.logger.info("CheckoutCallbackController external_id")
+    Rails.logger.info("external_id: #{callback_params.inspect}")
     if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
       "C#{callback_params[:customer][:external_id]}" # C prefix for customers
     elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
