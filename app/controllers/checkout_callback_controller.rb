@@ -58,8 +58,12 @@ class CheckoutCallbackController < ApplicationController
     Rails.logger.info("CheckoutCallbackController order_payload #{order_payload.inspect}")
 
     redirect_url_response = UPaymentsCheckoutApiClient.create_order(payload: order_payload)
+
+    Rails.logger.info("CheckoutCallbackController redirect_url_response #{redirect_url_response.inspect}")
     if redirect_url_response.dig("status")&.zero?
       error_message = redirect_url_response.dig("error", "message")
+
+      Rails.logger.info("CheckoutCallbackController error_message #{error_message.inspect}")
       return render json: { redirect_url: nil, error_message: error_message }
     end
 
