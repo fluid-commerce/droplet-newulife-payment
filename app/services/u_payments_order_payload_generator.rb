@@ -15,7 +15,7 @@ class UPaymentsOrderPayloadGenerator
     {
       invoiceNumber: Time.now.to_i.to_s,
       totalAmount: format("%.2f", cart[:amount_total]),
-      salesTax: format("%.2f", cart[:tax_total]),
+      **conditional_sales_tax,
       currency: cart[:currency_code],
       redirectUrl: "#{ENV['DROPLET_HOST_URL']}/checkout/success/#{cart[:cart_token]}/payment_account/#{payment_account_id}", # rubocop:disable Layout/LineLength
       cancelUrl: "#{ENV['CHECKOUT_HOST_URL']}/checkouts/#{cart[:cart_token]}",
@@ -45,5 +45,14 @@ class UPaymentsOrderPayloadGenerator
         }
       end,
     }
+  end
+
+  private
+
+  def conditional_sales_tax
+    return {} unless cart[:tax_total].present?
+
+    formatted_tax = format("%.2f", cart[:tax_total])
+    formatted_tax == "0.00" ? {} : { salesTax: formatted_tax }
   end
 end
