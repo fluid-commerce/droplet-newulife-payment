@@ -15,7 +15,8 @@ class ByDesign
 
   def create_consumer
     response = self.class.post(
-      "/api/rep/Create",
+      # "/api/rep/Create",
+      "api/users/customer",
       headers: headers,
       body: generate_consumer_payload.to_json
     )
@@ -38,7 +39,7 @@ private
 
   def generate_consumer_payload
     {
-      SponsorRepDID: sponsor_rep_id,
+      # SponsorRepDID: sponsor_rep_id,
       FirstName: cart.dig(:ship_to, :first_name),
       LastName: cart.dig(:ship_to, :last_name),
       Email: cart.dig(:email),
