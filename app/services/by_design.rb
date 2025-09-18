@@ -16,7 +16,7 @@ class ByDesign
   def create_consumer
     response = self.class.post(
       # "/api/rep/Create",
-      "api/users/customer",
+      "/api/users/customer",
       headers: headers,
       body: generate_consumer_payload.to_json
     )
