@@ -39,7 +39,7 @@ private
 
   def generate_consumer_payload
     {
-      # SponsorRepDID: sponsor_rep_id,
+      SponsorRepDID: sponsor_rep_id,
       FirstName: cart.dig(:ship_to, :first_name),
       LastName: cart.dig(:ship_to, :last_name),
       Email: cart.dig(:email),
