@@ -24,6 +24,8 @@ class CheckoutCallbackController < ApplicationController
         sponsor_rep_id: callback_params[:attribution][:external_id]
       )
 
+      Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
+
       unless by_design_consumer.dig("Result", "IsSuccessful")
         error_message = by_design_consumer.dig("Result", "Message")
         return render json: { redirect_url: nil, error_message: }
