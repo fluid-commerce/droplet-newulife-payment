@@ -15,16 +15,21 @@ class CheckoutCallbackController < ApplicationController
     Rails.logger.info("CheckoutCallbackController user_check_response.dig('status') #{user_check_response.dig('status')}")
     if user_check_response.dig("status")&.zero?
       # Create consumer in ByDesign
+      # by_design_consumer = ByDesign.create_consumer(
+      #   cart: cart_payload,
+      #   sponsor_rep_id: callback_params[:attributable_rep_id]
+      # )
       by_design_consumer = ByDesign.create_consumer(
         cart: cart_payload,
-        sponsor_rep_id: callback_params[:attributable_rep_id]
+        sponsor_rep_id: callback_params[:attribution][:external_id]
       )
 
       unless by_design_consumer.dig("Result", "IsSuccessful")
         error_message = by_design_consumer.dig("Result", "Message")
         return render json: { redirect_url: nil, error_message: }
       end
-      consumer_external_id = "R#{by_design_consumer["RepDID"]}"
+      # consumer_external_id = "R#{by_design_consumer["RepDID"]}"
+      consumer_external_id = "C#{by_design_consumer["RepDID"]}"
 
       # Check if customer already exists in Fluid
       fluid_customer = fluid_client.get("/api/customers?search_query=#{customer_payload.dig(:email)}&page=1&per_page=1")
@@ -145,7 +150,8 @@ private
           :price,
           { product: [ :sku ] },
         ],
-      ]
+      ],
+      attribution: [:name, :email, :external_id, :share_guid]
     )
   end
 
