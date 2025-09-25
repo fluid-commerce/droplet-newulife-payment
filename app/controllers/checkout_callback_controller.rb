@@ -25,20 +25,28 @@ class CheckoutCallbackController < ApplicationController
       )
 
       Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
+      Rails.logger.info("CheckoutCallbackController by_design_consumer.dig("CustomerID") #{by_design_consumer.dig("CustomerID")}")
 
-      unless by_design_consumer.dig("Result", "IsSuccessful")
-        error_message = by_design_consumer.dig("Result", "Message")
+      # unless by_design_consumer.dig("Result", "IsSuccessful")
+      #   error_message = by_design_consumer.dig("Result", "Message")
+      #   return render json: { redirect_url: nil, error_message: }
+      # end
+      unless by_design_consumer.dig("CustomerID").present?
+        # error_message = by_design_consumer.dig("Result", "Message")
         return render json: { redirect_url: nil, error_message: }
       end
       # consumer_external_id = "R#{by_design_consumer["RepDID"]}"
-      consumer_external_id = "C#{by_design_consumer["RepDID"]}"
+      # consumer_external_id = "C#{by_design_consumer["RepDID"]}"
+      consumer_external_id = "C#{by_design_consumer["CustomerID"]}"
 
       # Check if customer already exists in Fluid
+      Rails.logger.info("CheckoutCallbackController fluid_customer")
       fluid_customer = fluid_client.get("/api/customers?search_query=#{customer_payload.dig(:email)}&page=1&per_page=1")
       Rails.logger.info("CheckoutCallbackController fluid_customer #{fluid_customer.inspect}")
       if fluid_customer["customers"].blank?
         # Create customer in Fluid
-        fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
+        response = fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
+        Rails.logger.info("CheckoutCallbackController post /api/customers response #{response.inspect}")
       end
 
       # Create consumer in UPayments
