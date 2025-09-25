@@ -45,12 +45,13 @@ private
       FirstName: cart.dig(:ship_to, :first_name),
       LastName: cart.dig(:ship_to, :last_name),
       Email: cart.dig(:email),
-      ShipStreet1: cart.dig(:ship_to, :address1),
-      ShipStreet2: cart.dig(:ship_to, :address2),
-      ShipCity: cart.dig(:ship_to, :city),
-      ShipState: cart.dig(:ship_to, :state),
-      ShipPostalCode: cart.dig(:ship_to, :postal_code),
-      ShipCountry: cart.dig(:ship_to, :country_code),
+      ShippingStreet1: cart.dig(:ship_to, :address1),
+      ShippingStreet2: cart.dig(:ship_to, :address2),
+      ShippingCity: cart.dig(:ship_to, :city),
+      ShippingState: cart.dig(:ship_to, :state),
+      ShippingPostalCode: cart.dig(:ship_to, :postal_code),
+      ShippingCountry: cart.dig(:ship_to, :country_code),
+      Password: "ByDesignTemporalPassword",
     }
   end
 end
