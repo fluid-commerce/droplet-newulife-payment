@@ -14,6 +14,7 @@ class ByDesign
   end
 
   def create_consumer
+    Rails.logger.info("ByDesign create_consumer generate_consumer_payload #{generate_consumer_payload.to_json}")
     response = self.class.post(
       # "/api/rep/Create",
       "/api/users/customer",
