@@ -3,7 +3,8 @@ class CheckoutCallbackController < ApplicationController
 
   def get_redirect_url
     Rails.logger.info("CheckoutCallbackController START get_redirect_url")
-    consumer_external_id = external_id
+    # consumer_external_id = external_id
+    consumer_external_id = no_prefix_external_id
     user_check_response = UPaymentsUserApiClient.check_user_exists(
       email: callback_params[:cart][:email],
       external_id: consumer_external_id
@@ -127,6 +128,16 @@ private
       "C#{callback_params[:customer][:external_id]}" # C prefix for customers
     elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
       "R#{callback_params[:user_company][:external_id]}" # R prefix for representatives/distributors
+    end
+  end
+
+  def no_prefix_external_id
+    Rails.logger.info("CheckoutCallbackController no_prefix_external_id")
+    Rails.logger.info("no_prefix_external_id: #{callback_params.inspect}")
+    if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
+      callback_params[:customer][:external_id]
+    elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
+      callback_params[:user_company][:external_id]
     end
   end
 
