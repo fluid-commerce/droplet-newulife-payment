@@ -26,7 +26,8 @@ class CheckoutCallbackController < ApplicationController
       )
 
       Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
-      Rails.logger.info("CheckoutCallbackController by_design_consumer.dig("CustomerID") #{by_design_consumer.dig("CustomerID")}")
+      customer_id = by_design_consumer.dig("CustomerID")
+      Rails.logger.info("CheckoutCallbackController by_design_consumer.dig(CustomerID) #{customer_id}")
 
       # unless by_design_consumer.dig("Result", "IsSuccessful")
       #   error_message = by_design_consumer.dig("Result", "Message")
