@@ -2,6 +2,7 @@ class CheckoutCallbackController < ApplicationController
   skip_before_action :verify_authenticity_token
 
   def get_redirect_url
+    Rails.logger.info("CheckoutCallbackController START get_redirect_url")
     consumer_external_id = external_id
     user_check_response = UPaymentsUserApiClient.check_user_exists(
       email: callback_params[:cart][:email],
