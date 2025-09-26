@@ -19,11 +19,6 @@ class CheckoutCallbackController < ApplicationController
       #Create consumer in ByDesign
       by_design_consumer = ByDesign.create_consumer(
         cart: cart_payload,
-        sponsor_rep_id: callback_params[:attributable_rep_id]
-      )
-
-      by_design_consumer = ByDesign.create_consumer(
-        cart: cart_payload,
         sponsor_rep_id: callback_params[:attribution][:external_id]
       )
 
