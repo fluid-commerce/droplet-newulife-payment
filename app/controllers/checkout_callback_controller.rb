@@ -3,8 +3,8 @@ class CheckoutCallbackController < ApplicationController
 
   def get_redirect_url
     Rails.logger.info("CheckoutCallbackController START get_redirect_url")
-    # consumer_external_id = external_id
-    consumer_external_id = no_prefix_external_id
+    consumer_external_id = external_id
+    # consumer_external_id = no_prefix_external_id
     user_check_response = UPaymentsUserApiClient.check_user_exists(
       email: callback_params[:cart][:email],
       external_id: consumer_external_id
@@ -16,39 +16,26 @@ class CheckoutCallbackController < ApplicationController
 
     Rails.logger.info("CheckoutCallbackController user_check_response.dig('status') #{user_check_response.dig('status')}")
     if user_check_response.dig("status")&.zero?
-      # Create consumer in ByDesign
-      # by_design_consumer = ByDesign.create_consumer(
-      #   cart: cart_payload,
-      #   sponsor_rep_id: callback_params[:attributable_rep_id]
-      # )
-      
-      # avoid creating consumer in ByDesign because it's already created gaston@fluid.app
-      # UNCOMMENT THIS
-      # by_design_consumer = ByDesign.create_consumer(
-      #   cart: cart_payload,
-      #   sponsor_rep_id: callback_params[:attribution][:external_id]
-      # )
+      #Create consumer in ByDesign
+      by_design_consumer = ByDesign.create_consumer(
+        cart: cart_payload,
+        sponsor_rep_id: callback_params[:attributable_rep_id]
+      )
 
-      # UNCOMMENT THIS
-      # Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
-      # customer_id = by_design_consumer.dig("CustomerID")
-      # Rails.logger.info("CheckoutCallbackController by_design_consumer.dig(CustomerID) #{customer_id}")
+      by_design_consumer = ByDesign.create_consumer(
+        cart: cart_payload,
+        sponsor_rep_id: callback_params[:attribution][:external_id]
+      )
 
-      # unless by_design_consumer.dig("Result", "IsSuccessful")
-      #   error_message = by_design_consumer.dig("Result", "Message")
-      #   return render json: { redirect_url: nil, error_message: }
-      # end
-      # unless by_design_consumer.dig("CustomerID").present?
-      #   # error_message = by_design_consumer.dig("Result", "Message")
-      #   return render json: { redirect_url: nil, error_message: }
-      # end
-      # consumer_external_id = "R#{by_design_consumer["RepDID"]}"
-      # consumer_external_id = "C#{by_design_consumer["RepDID"]}"
+      Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
 
-      customer_id = "164781"
-      consumer_external_id = "C#{customer_id}"
-      # UNCOMMENT THIS
-      # consumer_external_id = "C#{by_design_consumer["CustomerID"]}"
+      # Check if the response indicates failure
+      unless by_design_consumer.dig("Result", "IsSuccessful")
+        error_message = by_design_consumer.dig("Result", "Message")
+        return render json: { redirect_url: nil, error_message: }
+      end
+
+      consumer_external_id = "C#{by_design_consumer.dig("CustomerID")}"
 
       # Check if customer already exists in Fluid
       Rails.logger.info("CheckoutCallbackController fluid_customer")
@@ -139,15 +126,15 @@ private
     end
   end
 
-  def no_prefix_external_id
-    Rails.logger.info("CheckoutCallbackController no_prefix_external_id")
-    Rails.logger.info("no_prefix_external_id: #{callback_params.inspect}")
-    if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
-      callback_params[:customer][:external_id]
-    elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
-      callback_params[:user_company][:external_id]
-    end
-  end
+  # def no_prefix_external_id
+  #   Rails.logger.info("CheckoutCallbackController no_prefix_external_id")
+  #   Rails.logger.info("no_prefix_external_id: #{callback_params.inspect}")
+  #   if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
+  #     callback_params[:customer][:external_id]
+  #   elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
+  #     callback_params[:user_company][:external_id]
+  #   end
+  # end
 
   def callback_params
     params.permit(
