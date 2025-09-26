@@ -81,6 +81,10 @@ class CheckoutCallbackController < ApplicationController
     base_redirect_url = redirect_url_response.dig("data", "redirectUrl")
     final_redirect_url = "#{base_redirect_url}&uuid=#{uuid}"
 
+    Rails.logger.info("Final Step uuid #{uuid}")
+    Rails.logger.info("Final Step base_redirect_url #{base_redirect_url}")
+    Rails.logger.info("Final Step final_redirect_url #{final_redirect_url}")
+
     render json: { redirect_url: final_redirect_url, error_message: nil }
   end
 
