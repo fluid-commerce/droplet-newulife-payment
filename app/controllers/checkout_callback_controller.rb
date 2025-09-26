@@ -21,26 +21,34 @@ class CheckoutCallbackController < ApplicationController
       #   cart: cart_payload,
       #   sponsor_rep_id: callback_params[:attributable_rep_id]
       # )
-      by_design_consumer = ByDesign.create_consumer(
-        cart: cart_payload,
-        sponsor_rep_id: callback_params[:attribution][:external_id]
-      )
+      
+      # avoid creating consumer in ByDesign because it's already created gaston@fluid.app
+      # UNCOMMENT THIS
+      # by_design_consumer = ByDesign.create_consumer(
+      #   cart: cart_payload,
+      #   sponsor_rep_id: callback_params[:attribution][:external_id]
+      # )
 
-      Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
-      customer_id = by_design_consumer.dig("CustomerID")
-      Rails.logger.info("CheckoutCallbackController by_design_consumer.dig(CustomerID) #{customer_id}")
+      # UNCOMMENT THIS
+      # Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
+      # customer_id = by_design_consumer.dig("CustomerID")
+      # Rails.logger.info("CheckoutCallbackController by_design_consumer.dig(CustomerID) #{customer_id}")
 
       # unless by_design_consumer.dig("Result", "IsSuccessful")
       #   error_message = by_design_consumer.dig("Result", "Message")
       #   return render json: { redirect_url: nil, error_message: }
       # end
-      unless by_design_consumer.dig("CustomerID").present?
-        # error_message = by_design_consumer.dig("Result", "Message")
-        return render json: { redirect_url: nil, error_message: }
-      end
+      # unless by_design_consumer.dig("CustomerID").present?
+      #   # error_message = by_design_consumer.dig("Result", "Message")
+      #   return render json: { redirect_url: nil, error_message: }
+      # end
       # consumer_external_id = "R#{by_design_consumer["RepDID"]}"
       # consumer_external_id = "C#{by_design_consumer["RepDID"]}"
-      consumer_external_id = "C#{by_design_consumer["CustomerID"]}"
+
+      customer_id = "164781"
+      consumer_external_id = "C#{customer_id}"
+      # UNCOMMENT THIS
+      # consumer_external_id = "C#{by_design_consumer["CustomerID"]}"
 
       # Check if customer already exists in Fluid
       Rails.logger.info("CheckoutCallbackController fluid_customer")
