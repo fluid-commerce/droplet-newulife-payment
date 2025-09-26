@@ -24,11 +24,13 @@ class CheckoutCallbackController < ApplicationController
 
       Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
 
+      response = by_design_consumer.dig("Result", "IsSuccessful")
+      Rails.logger.info("CheckoutCallbackController by_design_consumer response #{response}")
       # Check if the response indicates failure
-      unless by_design_consumer.dig("Result", "IsSuccessful")
-        error_message = by_design_consumer.dig("Result", "Message")
-        return render json: { redirect_url: nil, error_message: }
-      end
+      # unless by_design_consumer.dig("Result", "IsSuccessful")
+      #   error_message = by_design_consumer.dig("Result", "Message")
+      #   return render json: { redirect_url: nil, error_message: }
+      # end
 
       consumer_external_id = "C#{by_design_consumer.dig("CustomerID")}"
 
