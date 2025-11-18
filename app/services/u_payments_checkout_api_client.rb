@@ -1,9 +1,11 @@
 class UPaymentsCheckoutApiClient
   include HTTParty
 
-  base_uri ENV["UPAYMENTS_CHECKOUT_API_URL"]
+  # base_uri ENV["UPAYMENTS_CHECKOUT_API_URL"]
+  # default_options.update(verify: true) # Ensures SSL verification
 
   def initialize
+    @base_url = ENV["UPAYMENTS_CHECKOUT_API_URL"]
     @private_key = load_private_key_from_env
     @api_code = ENV["UPAYMENTS_MC_API_CODE"]
     @algorithm = "RS512"
@@ -16,8 +18,8 @@ class UPaymentsCheckoutApiClient
   end
 
   def create_order(payload:)
-    response = self.class.post(
-      "/",
+    response = HTTParty.post(
+      @base_url, # Use the full URL directly
       body: payload.to_json,
       headers: headers
     )
