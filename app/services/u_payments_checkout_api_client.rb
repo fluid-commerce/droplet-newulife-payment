@@ -17,7 +17,7 @@ class UPaymentsCheckoutApiClient
 
   def create_order(payload:)
     response = self.class.post(
-      "/checkout/v1/order",
+      "/",
       body: payload.to_json,
       headers: headers
     )

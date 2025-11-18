@@ -107,6 +107,9 @@ class CheckoutCallbackController < ApplicationController
       # Call the fluid checkout api to create the order
       checkout_response = fluid_client.post("/api/carts/#{cart_token}/checkout?payment_uuid=#{payment_uuid}")
 
+      Rails.logger.info("Final Step checkout_response #{checkout_response.inspect}")
+      Rails.logger.info("Final Step checkout_response['order']['order_confirmation_url'] #{checkout_response['order']['order_confirmation_url']}")
+
       order_confirmation_url = checkout_response["order"]["order_confirmation_url"]
       redirect_to order_confirmation_url, allow_other_host: true
     else
