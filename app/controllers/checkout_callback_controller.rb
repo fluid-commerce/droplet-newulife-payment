@@ -89,9 +89,10 @@ class CheckoutCallbackController < ApplicationController
   end
 
   def success
-    if success_params[:status] == "SUCCESS"
+    status = extract_status
+    if status == "SUCCESS"
       cart_token = success_params[:cart_token]
-      payment_account_id = success_params[:payment_account_id]
+      payment_account_id = extract_payment_account_id
 
       # Call the fluid checkout api to create payment and payment_methods
       payment_payload = {
@@ -104,6 +105,9 @@ class CheckoutCallbackController < ApplicationController
       payment_response = fluid_client.post("/api/v202506/payments/#{payment_account_id}", body: payment_payload)
       payment_uuid = payment_response["payment"]["uuid"]
 
+      Rails.logger.info("payment_response #{payment_response.inspect}")
+      Rails.logger.info("payment_response['payment']['uuid'] #{payment_response['payment']['uuid']}")
+
       # Call the fluid checkout api to create the order
       checkout_response = fluid_client.post("/api/carts/#{cart_token}/checkout?payment_uuid=#{payment_uuid}")
 
@@ -113,6 +117,7 @@ class CheckoutCallbackController < ApplicationController
       order_confirmation_url = checkout_response["order"]["order_confirmation_url"]
       redirect_to order_confirmation_url, allow_other_host: true
     else
+      cart_token = success_params[:cart_token]
       fluid_checkout_url = "#{ENV['CHECKOUT_HOST_URL']}/checkouts/#{cart_token}"
       redirect_to fluid_checkout_url, allow_other_host: true
     end
@@ -179,6 +184,34 @@ private
 
   def success_params
     params.permit(:cart_token, :payment_account_id, :status)
+  end
+
+  def extract_status
+    # First try to get status as a separate parameter
+    return success_params[:status] if success_params[:status].present?
+
+    # If not found, check if it's concatenated in payment_account_id
+    payment_account_id_param = params[:payment_account_id] || params["payment_account_id"]
+    if payment_account_id_param.present? && payment_account_id_param.include?("&status=")
+      # Extract status from payment_account_id (e.g., "223&status=SUCCESS")
+      match = payment_account_id_param.match(/&status=([^&]+)/)
+      return match[1] if match
+    end
+
+    nil
+  end
+
+  def extract_payment_account_id
+    payment_account_id_param = params[:payment_account_id] || params["payment_account_id"]
+    return nil unless payment_account_id_param.present?
+
+    # If payment_account_id contains &status=, extract just the ID part
+    if payment_account_id_param.include?("&status=")
+      # Extract just the ID part before &status=
+      payment_account_id_param.split("&status=").first
+    else
+      payment_account_id_param
+    end
   end
 
   def cart_payload
