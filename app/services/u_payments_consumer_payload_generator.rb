@@ -40,7 +40,7 @@ class UPaymentsConsumerPayloadGenerator
       zipcode: cart[:ship_to][:postal_code],
       country_code: "+1", # TODO: Add country code, how to get this?
       ssn: nil, # TODO: Add SSN, how to get this?
-      primaryWallet: nil,
+      primaryWallet: cart[:currency_code],
       business_name: nil,
       external_id: external_id,
       hkcm: false,
