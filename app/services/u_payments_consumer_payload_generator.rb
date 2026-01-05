@@ -43,7 +43,6 @@ class UPaymentsConsumerPayloadGenerator
       primaryWallet: nil,
       business_name: nil,
       external_id: external_id,
-      currency: %w[USD JPY HKD TWD MYR SGD KRW EUR GBP CNY],
       hkcm: false,
     }
   end

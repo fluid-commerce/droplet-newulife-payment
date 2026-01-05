@@ -33,7 +33,7 @@ class UPaymentsUserApiClient
 
   def onboard_consumer(payload:)
     response = self.class.post(
-      "/login/on-board",
+      "/login/v2/on-board",
       body: payload.to_json,
       headers: headers
     )
