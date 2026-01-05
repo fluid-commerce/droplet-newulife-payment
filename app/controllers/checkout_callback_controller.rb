@@ -42,6 +42,10 @@ class CheckoutCallbackController < ApplicationController
         # Create customer in Fluid
         response = fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
         Rails.logger.info("CheckoutCallbackController post /api/customers response #{response.inspect}")
+      else
+        # Customer already exists in Fluid, use their external_id
+        consumer_external_id = fluid_customer["customers"].first["external_id"]
+        Rails.logger.info("CheckoutCallbackController using existing Fluid customer external_id: #{consumer_external_id}")
       end
 
       # Create consumer in UPayments
