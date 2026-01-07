@@ -3,7 +3,7 @@ class UPaymentsConsumerPayloadGenerator
 
   # TODO: These are Sandbox product ids, need to replace with production ids
   PRODUCT_IDS = {
-    CAD: "d331463a-3aba-43e7-9e3c-89d89fafcb8b",
+    CAD: "8d7106c8-3ec9-4e1f-9942-7ab04359b234", # Canada uses USD product (We should be passing USD for CA but this is just in case)
     CNY: "a8c5a3ca-e5cc-46d8-97d9-8dbc7a391ba7",
     EUR: "f5c806e6-ad3e-44d6-b8c7-baf19aad0227",
     GBP: "ba5c93f9-fca6-4c06-babf-ffa41732b96b",
