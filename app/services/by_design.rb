@@ -14,18 +14,24 @@ class ByDesign
   end
 
   def create_consumer
-    Rails.logger.info("ByDesign create_consumer generate_consumer_payload #{generate_consumer_payload.to_json}")
+    payload = generate_consumer_payload
+    Rails.logger.info("ByDesign create_consumer payload: #{payload.to_json}")
+
     response = self.class.post(
-      # "/api/rep/Create",
       "/api/users/customer",
       headers: headers,
-      body: generate_consumer_payload.to_json
+      body: payload.to_json
     )
+
+    Rails.logger.info("ByDesign create_consumer response code: #{response.code}")
+    Rails.logger.info("ByDesign create_consumer response body: #{response.body}")
 
     if response.code == 200
       JSON.parse(response.body)
     else
-      { "Result" => { "IsSuccessful" => false, "Message" => response.body } }
+      error_message = "ByDesign API error (#{response.code}): #{response.body}"
+      Rails.logger.error(error_message)
+      { "Result" => { "IsSuccessful" => false, "Message" => error_message } }
     end
   end
 
@@ -40,7 +46,6 @@ private
 
   def generate_consumer_payload
     {
-      # SponsorRepDID: sponsor_rep_id,
       RepDID: sponsor_rep_id,
       FirstName: cart.dig(:ship_to, :first_name),
       LastName: cart.dig(:ship_to, :last_name),
@@ -49,9 +54,17 @@ private
       ShippingStreet2: cart.dig(:ship_to, :address2),
       ShippingCity: cart.dig(:ship_to, :city),
       ShippingState: cart.dig(:ship_to, :state),
-      ShippingPostalCode: cart.dig(:ship_to, :postal_code),
+      ShippingPostalCode: normalize_postal_code(cart.dig(:ship_to, :postal_code)),
       ShippingCountry: cart.dig(:ship_to, :country_code),
       Password: "ByDesignTemporalPassword",
     }
+  end
+
+  # Normalize postal code - remove spaces for Canadian postal codes
+  # Canadian format: "V9R 5G1" -> "V9R5G1"
+  def normalize_postal_code(postal_code)
+    return postal_code if postal_code.blank?
+
+    postal_code.to_s.gsub(/\s+/, "")
   end
 end

@@ -24,28 +24,29 @@ class CheckoutCallbackController < ApplicationController
 
       Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
 
-      response = by_design_consumer.dig("Result", "IsSuccessful")
-      Rails.logger.info("CheckoutCallbackController by_design_consumer response #{response}")
-      # Check if the response indicates failure
-      # unless by_design_consumer.dig("Result", "IsSuccessful")
-      #   error_message = by_design_consumer.dig("Result", "Message")
-      #   return render json: { redirect_url: nil, error_message: }
-      # end
-
-      consumer_external_id = "C#{by_design_consumer.dig("CustomerID")}"
+      by_design_successful = by_design_consumer.dig("Result", "IsSuccessful")
+      by_design_customer_id = by_design_consumer.dig("CustomerID")
+      Rails.logger.info("CheckoutCallbackController by_design_consumer response #{by_design_successful}")
 
       # Check if customer already exists in Fluid
       Rails.logger.info("CheckoutCallbackController fluid_customer")
       fluid_customer = fluid_client.get("/api/customers?search_query=#{customer_payload.dig(:email)}&page=1&per_page=1")
       Rails.logger.info("CheckoutCallbackController fluid_customer #{fluid_customer.inspect}")
-      if fluid_customer["customers"].blank?
-        # Create customer in Fluid
-        response = fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
-        Rails.logger.info("CheckoutCallbackController post /api/customers response #{response.inspect}")
-      else
+
+      if fluid_customer["customers"].present?
         # Customer already exists in Fluid, use their external_id
         consumer_external_id = fluid_customer["customers"].first["external_id"]
         Rails.logger.info("CheckoutCallbackController using existing Fluid customer external_id: #{consumer_external_id}")
+      elsif by_design_successful && by_design_customer_id.present?
+        # ByDesign succeeded, create new Fluid customer with ByDesign ID
+        consumer_external_id = "C#{by_design_customer_id}"
+        response = fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
+        Rails.logger.info("CheckoutCallbackController post /api/customers response #{response.inspect}")
+      else
+        # ByDesign failed and no existing Fluid customer - cannot proceed
+        error_message = by_design_consumer.dig("Result", "Message") || "Failed to create customer in ByDesign"
+        Rails.logger.error("ByDesign customer creation failed and no existing Fluid customer: #{error_message}")
+        return render json: { redirect_url: nil, error_message: error_message }
       end
 
       # Create consumer in UPayments
