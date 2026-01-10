@@ -60,7 +60,7 @@ private
       BillingStreet2: cart.dig(:ship_to, :address2),
       BillingCity: cart.dig(:ship_to, :city),
       BillingState: cart.dig(:ship_to, :state),
-      BillingPostalCode: cart.dig(:ship_to, :postal_code),
+      BillingPostalCode: normalize_postal_code(cart.dig(:ship_to, :postal_code)),
       BillingCountry: cart.dig(:ship_to, :country_code),
       Password: "ByDesignTemporalPassword",
     }
