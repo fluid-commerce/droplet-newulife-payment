@@ -17,9 +17,10 @@ class CheckoutCallbackController < ApplicationController
     Rails.logger.info("CheckoutCallbackController user_check_response.dig('status') #{user_check_response.dig('status')}")
     if user_check_response.dig("status")&.zero?
       #Create consumer in ByDesign
+      sponsor_rep_id = callback_params[:attribution]&.dig(:external_id) || "1"
       by_design_consumer = ByDesign.create_consumer(
         cart: cart_payload,
-        sponsor_rep_id: callback_params[:attribution][:external_id]
+        sponsor_rep_id: sponsor_rep_id
       )
 
       Rails.logger.info("CheckoutCallbackController by_design_consumer #{by_design_consumer.inspect}")
