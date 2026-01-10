@@ -51,6 +51,12 @@ private
       ShippingState: cart.dig(:ship_to, :state),
       ShippingPostalCode: cart.dig(:ship_to, :postal_code),
       ShippingCountry: cart.dig(:ship_to, :country_code),
+      BillingStreet1: cart.dig(:ship_to, :address1),
+      BillingStreet2: cart.dig(:ship_to, :address2),
+      BillingCity: cart.dig(:ship_to, :city),
+      BillingState: cart.dig(:ship_to, :state),
+      BillingPostalCode: cart.dig(:ship_to, :postal_code),
+      BillingCountry: cart.dig(:ship_to, :country_code),
       Password: "ByDesignTemporalPassword",
     }
   end
