@@ -55,13 +55,13 @@ private
       ShippingCity: cart.dig(:ship_to, :city),
       ShippingState: cart.dig(:ship_to, :state),
       ShippingPostalCode: normalize_postal_code(cart.dig(:ship_to, :postal_code)),
-      ShippingCountry: cart.dig(:ship_to, :country_code),
+      ShippingCountry: map_country_code_to_bydesign(cart.dig(:ship_to, :country_code)),
       BillingStreet1: cart.dig(:ship_to, :address1),
       BillingStreet2: cart.dig(:ship_to, :address2),
       BillingCity: cart.dig(:ship_to, :city),
       BillingState: cart.dig(:ship_to, :state),
       BillingPostalCode: normalize_postal_code(cart.dig(:ship_to, :postal_code)),
-      BillingCountry: cart.dig(:ship_to, :country_code),
+      BillingCountry: map_country_code_to_bydesign(cart.dig(:ship_to, :country_code)),
       Password: "ByDesignTemporalPassword",
     }
   end
@@ -73,4 +73,33 @@ private
 
     postal_code.to_s.gsub(/\s+/, "")
   end
+
+  # Map ISO country codes to ByDesign's expected country names
+  # Only mapping countries that require specific formatting
+  # Note: US works as "US" so leaving it unchanged
+  def map_country_code_to_bydesign(country_code)
+    country_mapping = {
+      "CA" => "CANADA", # CA doesn't work, must use CANADA
+      "KR" => "KOREA (THE REPUBLIC OF)", # Must use full string per ByDesign requirements
+    }
+
+    # Return mapped value if it exists, otherwise return original country code
+    country_mapping[country_code&.upcase] || country_code
+  end
+
+  # Full list of ByDesign active countries (for future reference):
+  # AUSTRALIA, BELGIUM, CANADA, CHINA, GERMANY, HONG KONG, JAPAN, Jersey,
+  # KOREA (THE REPUBLIC OF), MALAYSIA, NETHERLANDS, NEW ZEALAND, SINGAPORE,
+  # TAIWAN, THAILAND, UNITED KINGDOM, USA
+  #
+  # Special rules from ByDesign:
+  # - China should be displayed as "Hong Kong Cross Market" but sent as "CHINA"
+  # - Korea needs the full string "KOREA (THE REPUBLIC OF)" (not just "Korea")
+  #
+  # Potential full mapping (if needed in the future):
+  # "AU" => "AUSTRALIA", "BE" => "BELGIUM", "CA" => "CANADA", "CN" => "CHINA",
+  # "DE" => "GERMANY", "HK" => "HONG KONG", "JP" => "JAPAN", "JE" => "Jersey",
+  # "KR" => "KOREA (THE REPUBLIC OF)", "MY" => "MALAYSIA", "NL" => "NETHERLANDS",
+  # "NZ" => "NEW ZEALAND", "SG" => "SINGAPORE", "TW" => "TAIWAN", "TH" => "THAILAND",
+  # "GB" => "UNITED KINGDOM", "US" => "USA"
 end
