@@ -27,7 +27,9 @@ class ByDesign
     Rails.logger.info("ByDesign create_consumer response body: #{response.body}")
 
     if response.code == 200
-      JSON.parse(response.body)
+      # Wrap success response to include Result structure for consistent handling
+      customer_data = JSON.parse(response.body)
+      customer_data.merge("Result" => { "IsSuccessful" => true })
     else
       error_message = "ByDesign API error (#{response.code}): #{response.body}"
       Rails.logger.error(error_message)
