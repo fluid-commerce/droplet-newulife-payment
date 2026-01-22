@@ -77,20 +77,28 @@ private
     payment.status = payment.determine_status
 
     # Set matched_at timestamp if transitioning to matched
-    payment.matched_at = Time.current if payment.status == :matched && payment.matched_at.blank?
+    payment.matched_at = Time.current if payment.matched? && payment.matched_at.blank?
 
     payment.save!
   end
 
   def normalize_payment_details
-    payment_details.map do |pd|
-      {
-        "type" => pd[:type] || pd["type"],
-        "amount" => pd[:amount] || pd["amount"],
-        "id" => pd[:id] || pd["id"],
-        "status" => pd[:status] || pd["status"],
-        "currency" => pd[:currency] || pd["currency"]
-      }.compact
-    end
+    # Filter out declined payments and normalize the remaining ones
+    payment_details
+      .reject { |pd| declined_payment?(pd) }
+      .map do |pd|
+        {
+          "type" => pd[:type] || pd["type"],
+          "amount" => pd[:amount] || pd["amount"],
+          "id" => pd[:id] || pd["id"],
+          "status" => pd[:status] || pd["status"],
+          "currency" => pd[:currency] || pd["currency"]
+        }.compact
+      end
+  end
+
+  def declined_payment?(payment_detail)
+    status = payment_detail[:status] || payment_detail["status"]
+    status == "Declined"
   end
 end

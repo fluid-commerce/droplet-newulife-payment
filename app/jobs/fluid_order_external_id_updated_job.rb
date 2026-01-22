@@ -47,7 +47,7 @@ class FluidOrderExternalIdUpdatedJob < WebhookEventJob
     moola_payment.status = moola_payment.determine_status
 
     # Set matched_at timestamp if transitioning to matched
-    moola_payment.matched_at = Time.current if moola_payment.status == :matched && moola_payment.matched_at.blank?
+    moola_payment.matched_at = Time.current if moola_payment.matched? && moola_payment.matched_at.blank?
 
     moola_payment.save!
 

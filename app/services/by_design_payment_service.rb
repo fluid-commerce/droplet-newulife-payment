@@ -7,34 +7,63 @@ class ByDesignPaymentService
   DEFAULT_TIMEOUT = 30
 
   # Payment type mapping from Moola to ByDesign
+  # All Moola payments use CreditCardAccountId 30
   PAYMENT_TYPE_MAP = {
     "LOAD_FUNDS_VIA_CARD" => { credit_card_account_id: 30, description: "Moola Card Payment" },
     "UWALLET_TRANSFER" => { credit_card_account_id: 30, description: "Moola Wallet Transfer" },
-    "uwallet" => { credit_card_account_id: 30, description: "Moola Wallet" }
+    "uwallet" => { credit_card_account_id: 30, description: "Moola Wallet" },
+    "LOAD_FUNDS_VIA_CASH" => { credit_card_account_id: 30, description: "Moola Cash Payment" }
   }.freeze
 
-  # Payment status mapping
-  # Default to Pending (6) for unknown statuses to avoid accidentally marking payments as approved
+  # Payment status mapping based on Moola guide:
+  # - KYC status OVERRIDES payment status (handled in map_payment_status)
+  # - LOAD_FUNDS_VIA_CASH is always Pending regardless of status
+  # - Declined payments at processor level should be skipped (not recorded)
   PAYMENT_STATUS_MAP = {
     "Success" => 1,      # Normal/Approved
     "Pending" => 6,      # Pending
-    "Declined" => 18,    # Declined
+    "Declined" => 18,    # Declined - but these should typically be skipped
     "Failed" => 18       # Declined
+  }.freeze
+
+  # KYC status to PaymentStatusTypeID mapping
+  # KYC status overrides payment status per Moola guide
+  KYC_STATUS_MAP = {
+    "APPROVE" => nil,    # Use payment status
+    "REVIEW" => 6,       # Pending
+    "DECLINE" => 18      # Declined
   }.freeze
 
   DEFAULT_PAYMENT_STATUS = 6  # Pending - safer default than Success
 
   class << self
-    def record_payment(order_id:, payment_detail:, card_details: {})
-      new.record_payment(order_id: order_id, payment_detail: payment_detail, card_details: card_details)
+    def record_payment(order_id:, payment_detail:, card_details: {}, kyc_status: nil, invoice_number: nil)
+      new.record_payment(
+        order_id: order_id,
+        payment_detail: payment_detail,
+        card_details: card_details,
+        kyc_status: kyc_status,
+        invoice_number: invoice_number
+      )
+    end
+
+    # Check if a payment should be skipped (not recorded)
+    def should_skip_payment?(payment_detail)
+      payment_detail["status"] == "Declined"
     end
   end
 
-  def record_payment(order_id:, payment_detail:, card_details: {})
-    payload = build_payment_payload(order_id, payment_detail, card_details)
+  def record_payment(order_id:, payment_detail:, card_details: {}, kyc_status: nil, invoice_number: nil)
+    # Skip declined payments at processor level
+    if self.class.should_skip_payment?(payment_detail)
+      Rails.logger.info("[ByDesignPaymentService] Skipping declined payment: #{payment_detail['id']}")
+      return { success: true, skipped: true, reason: "Payment declined at processor level" }
+    end
+
+    payload = build_payment_payload(order_id, payment_detail, card_details, kyc_status, invoice_number)
 
     Rails.logger.info("[ByDesignPaymentService] Recording payment: OrderID=#{order_id}, " \
-                      "Amount=#{payment_detail['amount']}, Type=#{payment_detail['type']}")
+                      "Amount=#{payment_detail['amount']}, Type=#{payment_detail['type']}, KYC=#{kyc_status}")
     Rails.logger.debug("[ByDesignPaymentService] Payload: #{payload.to_json}")
 
     response = self.class.post(
@@ -71,45 +100,71 @@ private
     "Basic #{Base64.strict_encode64(credentials).strip}"
   end
 
-  def build_payment_payload(order_id, payment_detail, card_details)
+  def build_payment_payload(order_id, payment_detail, card_details, kyc_status, invoice_number)
     payment_type = payment_detail["type"]
     type_config = PAYMENT_TYPE_MAP[payment_type] || PAYMENT_TYPE_MAP["UWALLET_TRANSFER"]
+    is_card_payment = payment_type == "LOAD_FUNDS_VIA_CARD"
 
-    {
+    payload = {
       OrderID: order_id.to_i,
-      Amount: calculate_amount(payment_detail),
-      PromissoryAmount: calculate_promissory_amount(payment_detail),
-      PaymentStatusTypeID: map_payment_status(payment_detail["status"]),
+      Amount: calculate_amount(payment_detail, kyc_status),
+      PromissoryAmount: calculate_promissory_amount(payment_detail, kyc_status),
+      PaymentStatusTypeID: map_payment_status(payment_detail, kyc_status),
       CreditCardAccountId: type_config[:credit_card_account_id],
-      PaymentToken: payment_detail["id"],  # Moola payment ID as token
       PaymentDescription: "#{type_config[:description]} - #{payment_detail['id']}",
-      Last4CCNumber: extract_last4(payment_detail, card_details),
-      ExpirationDateMMYY: extract_expiry(card_details)
+      PaymentDate: Time.current.iso8601,
+      TransactionID: payment_detail["id"],
+      ReferenceNumber: invoice_number
     }
+
+    # Card fields only for LOAD_FUNDS_VIA_CARD payments
+    if is_card_payment
+      payload[:PaymentToken] = payment_detail["id"]
+      payload[:Last4CCNumber] = extract_last4(payment_detail, card_details)
+      payload[:ExpirationDateMMYY] = extract_expiry(card_details)
+    end
+
+    payload
   end
 
-  def calculate_amount(payment_detail)
-    # If payment is pending, set amount to 0
-    return 0 if payment_detail["status"] == "Pending"
+  def calculate_amount(payment_detail, kyc_status)
+    # Use promissory (amount = 0) when:
+    # - Payment status is Pending
+    # - KYC is REVIEW (not yet approved)
+    # - Payment type is LOAD_FUNDS_VIA_CASH (always Pending)
+    effective_status = determine_effective_status(payment_detail, kyc_status)
+    return 0 if effective_status == 6  # Pending
 
     payment_detail["amount"].to_f
   end
 
-  def calculate_promissory_amount(payment_detail)
-    # If payment is pending, use promissory amount
-    return payment_detail["amount"].to_f if payment_detail["status"] == "Pending"
+  def calculate_promissory_amount(payment_detail, kyc_status)
+    # Use promissory amount when effective status is Pending
+    effective_status = determine_effective_status(payment_detail, kyc_status)
+    return payment_detail["amount"].to_f if effective_status == 6  # Pending
 
     0
   end
 
-  def map_payment_status(status)
-    # Default to Pending for unknown statuses - safer than defaulting to Success
-    PAYMENT_STATUS_MAP[status] || DEFAULT_PAYMENT_STATUS
+  def determine_effective_status(payment_detail, kyc_status)
+    # KYC status overrides payment status
+    return KYC_STATUS_MAP[kyc_status] if KYC_STATUS_MAP[kyc_status].present?
+
+    # LOAD_FUNDS_VIA_CASH is always Pending regardless of status
+    return 6 if payment_detail["type"] == "LOAD_FUNDS_VIA_CASH"
+
+    # Use payment status for approved KYC
+    PAYMENT_STATUS_MAP[payment_detail["status"]] || DEFAULT_PAYMENT_STATUS
+  end
+
+  def map_payment_status(payment_detail, kyc_status)
+    determine_effective_status(payment_detail, kyc_status)
   end
 
   def extract_last4(payment_detail, card_details)
     # Try card_details first, then fall back to payment_detail id (last 4 chars)
-    card_details["last4"] || payment_detail["id"]&.last(4) || "0000"
+    # Only called for LOAD_FUNDS_VIA_CARD payments
+    card_details["last4"] || payment_detail["id"]&.last(4)
   end
 
   def extract_expiry(card_details)
@@ -131,8 +186,8 @@ private
       return "#{month}#{year}"
     end
 
-    # Default far-future expiry for non-card payments
-    "1299"
+    # No default - return nil if no expiry data available
+    nil
   end
 
   def parse_response(response)

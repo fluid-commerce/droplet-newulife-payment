@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_06_17_094537) do
+ActiveRecord::Schema[8.0].define(version: 2026_01_21_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -47,6 +47,34 @@ ActiveRecord::Schema[8.0].define(version: 2025_06_17_094537) do
     t.index ["company_id"], name: "index_events_on_company_id"
     t.index ["identifier"], name: "index_events_on_identifier"
     t.index ["name"], name: "index_events_on_name"
+  end
+
+  create_table "moola_payments", force: :cascade do |t|
+    t.string "cart_token", null: false
+    t.string "invoice_number", null: false
+    t.string "fluid_order_id"
+    t.string "bydesign_order_id"
+    t.string "moola_transaction_id"
+    t.string "kyc_status"
+    t.string "transaction_type"
+    t.jsonb "payment_details", default: []
+    t.jsonb "card_details", default: {}
+    t.jsonb "moola_webhook_payload", default: {}
+    t.jsonb "fluid_webhook_payload", default: {}
+    t.integer "status", default: 0, null: false
+    t.integer "bydesign_recording_attempts", default: 0
+    t.text "last_error"
+    t.datetime "matched_at"
+    t.datetime "recorded_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bydesign_order_id"], name: "index_moola_payments_on_bydesign_order_id"
+    t.index ["cart_token"], name: "index_moola_payments_on_cart_token", unique: true
+    t.index ["fluid_order_id"], name: "index_moola_payments_on_fluid_order_id"
+    t.index ["invoice_number"], name: "index_moola_payments_on_invoice_number"
+    t.index ["moola_transaction_id"], name: "index_moola_payments_on_moola_transaction_id"
+    t.index ["status", "created_at"], name: "index_moola_payments_on_status_and_created_at"
+    t.index ["status"], name: "index_moola_payments_on_status"
   end
 
   create_table "settings", force: :cascade do |t|

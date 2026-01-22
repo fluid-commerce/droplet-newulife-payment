@@ -40,19 +40,32 @@ class ByDesignPaymentRecordingJob < ApplicationJob
 private
 
   def record_payments_to_bydesign
-    @moola_payment.payment_details.map do |payment_detail|
+    # Filter out any declined payments that might have slipped through
+    recordable_payments = @moola_payment.payment_details.reject do |pd|
+      ByDesignPaymentService.should_skip_payment?(pd)
+    end
+
+    if recordable_payments.empty?
+      Rails.logger.info("[ByDesignPaymentRecordingJob] No recordable payments (all declined)")
+      return [{ payment_id: nil, success: true, skipped: true }]
+    end
+
+    recordable_payments.map do |payment_detail|
       result = ByDesignPaymentService.record_payment(
         order_id: @moola_payment.bydesign_order_id,
         payment_detail: payment_detail,
-        card_details: @moola_payment.card_details
+        card_details: @moola_payment.card_details,
+        kyc_status: @moola_payment.kyc_status,
+        invoice_number: @moola_payment.invoice_number
       )
 
       Rails.logger.info("[ByDesignPaymentRecordingJob] Payment #{payment_detail['id']}: " \
-                        "success=#{result[:success]}, error=#{result[:error]}")
+                        "success=#{result[:success]}, skipped=#{result[:skipped]}, error=#{result[:error]}")
 
       {
         payment_id: payment_detail["id"],
         success: result[:success],
+        skipped: result[:skipped],
         response: result[:response],
         error: result[:error]
       }

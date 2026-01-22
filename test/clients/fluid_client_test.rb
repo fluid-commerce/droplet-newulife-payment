@@ -20,6 +20,7 @@ describe FluidClient do
             },
             "service_operational_countries" => [],
           },
+          "categories" => ["payments"],
         },
       })
     end
