@@ -50,13 +50,16 @@ private
       return [{ payment_id: nil, success: true, skipped: true }]
     end
 
+    # Extract P2M webhook data for API field mapping
+    p2m_data = build_p2m_data
+
     recordable_payments.map do |payment_detail|
       result = ByDesignPaymentService.record_payment(
         order_id: @moola_payment.bydesign_order_id,
         payment_detail: payment_detail,
+        p2m_data: p2m_data,
         card_details: @moola_payment.card_details,
-        kyc_status: @moola_payment.kyc_status,
-        invoice_number: @moola_payment.invoice_number
+        kyc_status: @moola_payment.kyc_status
       )
 
       Rails.logger.info("[ByDesignPaymentRecordingJob] Payment #{payment_detail['id']}: " \
@@ -70,6 +73,20 @@ private
         error: result[:error]
       }
     end
+  end
+
+  # Build P2M data hash from stored webhook payload
+  # Per API docs, this includes: order_reference, client_uuid, invoice_number, autoship_reference, completed_at
+  def build_p2m_data
+    payload = @moola_payment.moola_webhook_payload || {}
+
+    {
+      "order_reference" => payload["order_reference"],
+      "client_uuid" => payload["client_uuid"],
+      "invoice_number" => @moola_payment.invoice_number,
+      "autoship_reference" => payload["autoship_reference"],
+      "completed_at" => payload["completed_at"]
+    }
   end
 
   def handle_recording_failure(results)

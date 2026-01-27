@@ -203,7 +203,7 @@ describe ByDesignPaymentRecordingJob do
           { "type" => "uwallet", "amount" => "50.00", "id" => "PAY1", "status" => "Success" },
           { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "id" => "PAY2", "status" => "Success" }
         ],
-        card_details: { "last4" => "4242", "expiry_date" => "12/2025" },
+        card_details: { "card_number_last4" => "4242", "expiry_date" => "12/2025", "payment_instrument_uuid" => "abc-uuid" },
         status: :matched
       )
 
@@ -221,6 +221,85 @@ describe ByDesignPaymentRecordingJob do
 
       payment.reload
       _(payment.status).must_equal "recorded"
+    end
+
+    it "sends correct P2M data field mappings per API docs" do
+      payment = MoolaPayment.create!(
+        cart_token: "p2m-mapping-test",
+        invoice_number: "NULF-CT:p2m-mapping-test",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "VW1TMS2ZR6", "status" => "Success", "order_reference" => "TKW2BRL2OP" }
+        ],
+        moola_webhook_payload: {
+          "order_reference" => "TKW2BRL2OP",
+          "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0",
+          "autoship_reference" => "G2XYS6ZBBZ",
+          "completed_at" => "1767187441840"
+        },
+        status: :matched
+      )
+
+      request_body = nil
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+        .with { |request| request_body = JSON.parse(request.body); true }
+        .to_return(
+          status: 200,
+          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      # Verify correct field mappings per API documentation
+      _(request_body["TransactionID"]).must_equal "TKW2BRL2OP"              # order_reference
+      _(request_body["ReferenceNumber"]).must_equal "VW1TMS2ZR6"            # payment_detail.id
+      _(request_body["PersistentToken"]).must_equal "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0"
+      _(request_body["ProfileIDUsedForProcessor"]).must_equal "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0"
+      _(request_body["ProcessorSpecificDetail1"]).must_equal "NULF-CT:p2m-mapping-test"  # invoice_number
+      _(request_body["ProcessorSpecificDetail2"]).must_equal "G2XYS6ZBBZ"   # autoship_reference
+      _(request_body["ProcessorSpecificDetail3"]).must_equal "uwallet"      # payment type (lowercase)
+      _(request_body["ProcessorSpecificDetail4"]).must_equal "TKW2BRL2OP"   # order_reference
+    end
+
+    it "sends correct card fields for LOAD_FUNDS_VIA_CARD payments" do
+      payment = MoolaPayment.create!(
+        cart_token: "card-mapping-test",
+        invoice_number: "NULF-CT:card-mapping-test",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "878.00", "id" => "EZC1236EQI", "status" => "Success", "order_reference" => "TKW2BRL2OP" }
+        ],
+        card_details: {
+          "card_number_last4" => "7999",
+          "expiry_date" => "8/2029",
+          "payment_instrument_uuid" => "50713565-6801-4064-b3a4-ea5a27bbab1c"
+        },
+        moola_webhook_payload: {
+          "order_reference" => "TKW2BRL2OP",
+          "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0"
+        },
+        status: :matched
+      )
+
+      request_body = nil
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+        .with { |request| request_body = JSON.parse(request.body); true }
+        .to_return(
+          status: 200,
+          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      # Verify card-specific fields per API documentation
+      _(request_body["PaymentToken"]).must_equal "50713565-6801-4064-b3a4-ea5a27bbab1c"  # payment_instrument_uuid
+      _(request_body["Last4CCNumber"]).must_equal "7999"                                  # card_number_last4
+      _(request_body["ExpirationDateMMYY"]).must_equal "0829"                            # expiry_date converted
+      _(request_body["ProcessorSpecificDetail3"]).must_equal "load_funds_via_card"       # payment type (lowercase)
     end
 
     it "discards job when payment record not found" do
