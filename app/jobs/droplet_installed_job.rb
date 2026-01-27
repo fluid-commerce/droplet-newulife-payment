@@ -27,6 +27,7 @@ class DropletInstalledJob < WebhookEventJob
     ))
     company.company_droplet_uuid = company_attributes.fetch("droplet_uuid")
     company.active = true
+    company.uninstalled_at = nil  # Clear uninstalled status for reinstalls
 
     unless company.save
       Rails.logger.error(

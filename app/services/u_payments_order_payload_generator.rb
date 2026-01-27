@@ -13,7 +13,7 @@ class UPaymentsOrderPayloadGenerator
 
   def generate_order_payload
     {
-      invoiceNumber: Time.now.to_i.to_s,
+      invoiceNumber: MoolaPayment.format_invoice_number(cart[:cart_token]),
       totalAmount: format("%.2f", cart[:amount_total]),
       **conditional_sales_tax,
       currency: cart[:currency_code],

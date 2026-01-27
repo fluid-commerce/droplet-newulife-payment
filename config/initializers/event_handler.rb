@@ -11,4 +11,7 @@ Rails.application.config.to_prepare do
   # EventHandler.register_handler("company_droplet.created", DropletInstalledJob)
   EventHandler.register_handler("droplet.uninstalled", DropletUninstalledJob)
   EventHandler.register_handler("droplet.installed", DropletInstalledJob)
+
+  # Order webhook handlers
+  EventHandler.register_handler("order.external_id_updated", FluidOrderExternalIdUpdatedJob)
 end
