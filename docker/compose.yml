@@ -1,0 +1,45 @@
+services:
+  db:
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    image: pgvector/pgvector:pg17
+    ports:
+      - "${DB_PORT:-65432}:5432"
+    restart: unless-stopped
+    stop_grace_period: 3s
+    volumes:
+      - postgres_db:/var/lib/postgresql/data
+
+  web:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.dev
+    ports:
+      - 3700:3000
+      - 3037:3036
+    volumes:
+      - ../:/rails
+      - gems:/usr/local/bundle
+      - node_modules:/rails/node_modules
+    depends_on:
+      - db
+    env_file:
+      - ../.env
+    environment:
+      - RAILS_ENV=development
+      - RUBY_YJIT_ENABLE=1
+      - RAILS_LOG_TO_STDOUT=1
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/droplet_newulife_payment_development
+    command: |
+      bash -c "
+        rm -f tmp/pids/server.pid && \
+        foreman start -f /rails/Procfile.dev
+      "
+    tty: true
+    stdin_open: true
+
+volumes:
+  postgres_db:
+  gems:
+  node_modules:
