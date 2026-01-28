@@ -1,0 +1,92 @@
+# google cloud build
+# gcloud beta builds submit --config cloudbuild-production.yml --region=europe-west1 --substitutions=COMMIT_SHA=$(git rev-parse --short HEAD),_TIMESTAMP=$(date +%Y%m%d%H%M%S) --project=fluid-417204 .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "build",
+        "--cache-from=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-base/web:latest",
+        "--cache-from=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
+        "-t",
+        "europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "-t",
+        "europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
+        ".",
+        "-f",
+        "docker/Dockerfile",
+      ]
+    id: build
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "push",
+        "europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+      ]
+    id: push-commit-sha
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "push",
+        "europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
+      ]
+    id: push-latest
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    args:
+      [
+        "run",
+        "jobs",
+        "update",
+        "${_APP_NAME}-migrations",
+        "--image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--region=europe-west1",
+        "--execute-now",
+        "--wait",
+      ]
+    id: migrate
+    entrypoint: gcloud
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    args:
+      [
+        "run",
+        "services",
+        "update",
+        "${_APP_NAME}",
+        "--platform=managed",
+        "--image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--region=europe-west1",
+        "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
+      ]
+    id: deploy-production
+    entrypoint: gcloud
+    waitFor: ["migrate"]
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    args:
+      [
+        "compute",
+        "instances",
+        "update-container",
+        "${_APP_NAME}-jobs-console",
+        "--zone=europe-west1-b",
+        "--container-image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--quiet",
+      ]
+    id: update-container-jobs-production
+    entrypoint: gcloud
+    waitFor: ["migrate"]
+
+substitutions:
+  _APP_NAME: "fluid-droplet-newulife-payment"
+  _APP_REPOSITORY: "fluid-droplets"
+
+images:
+  - "europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA"
+  - "europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest"
+
+options:
+  substitutionOption: ALLOW_LOOSE
+  logging: CLOUD_LOGGING_ONLY
