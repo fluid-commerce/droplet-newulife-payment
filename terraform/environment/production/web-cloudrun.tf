@@ -20,7 +20,7 @@ module "cloud_run_server_rails" {
   vpc_network_app = var.vpc_network_cloud_run
   vpc_subnet_app  = var.vpc_subnet_cloud_run
 
-  # Cloud SQL instances to connect to the database
+  # Cloud SQL instances to connect to the database (fluid-studioz)
   cloud_sql_instances = var.cloud_sql_instances_cloud_run
 
   # Container name
@@ -34,13 +34,4 @@ module "cloud_run_server_rails" {
   resource_limits_memory = "2Gi"
   # Environment variables
   environment_variables = var.environment_variables_cloud_run
-
-  # Depends on
-  depends_on = [
-    google_sql_database.database_production,
-    google_sql_database.database_production_queue,
-    google_sql_database.database_production_cache,
-    google_sql_database.database_production_cable,
-    google_sql_user.users
-  ]
 }

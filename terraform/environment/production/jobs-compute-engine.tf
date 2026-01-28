@@ -13,19 +13,11 @@ module "rails_jobs" {
   email_service_account = var.email_service_account
 
   # Container variable values
+  # Note: Database URLs are passed directly as they include the Cloud SQL proxy socket path
   container_image                   = var.container_image
   container_rails_master_key        = var.container_rails_master_key
-  container_db_url_production       = "${var.container_db_url_production}${module.postgres_db_instance.db_instance_private_ip}"
-  container_db_url_production_queue = "${var.container_db_url_production_queue}${module.postgres_db_instance.db_instance_private_ip}"
-  container_db_url_production_cache = "${var.container_db_url_production_cache}${module.postgres_db_instance.db_instance_private_ip}"
-  container_db_url_production_cable = "${var.container_db_url_production_cable}${module.postgres_db_instance.db_instance_private_ip}"
-
-  # Depends on
-  depends_on = [
-    google_sql_database.database_production,
-    google_sql_database.database_production_queue,
-    google_sql_database.database_production_cache,
-    google_sql_database.database_production_cable,
-    google_sql_user.users
-  ]
+  container_db_url_production       = var.container_db_url_production
+  container_db_url_production_queue = var.container_db_url_production_queue
+  container_db_url_production_cache = var.container_db_url_production_cache
+  container_db_url_production_cable = var.container_db_url_production_cable
 }

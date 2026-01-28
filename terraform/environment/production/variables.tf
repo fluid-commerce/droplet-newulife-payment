@@ -46,38 +46,6 @@ variable "email_service_account" {
   type        = string
 }
 
-# Postgres variables
-variable "postgres_password_production_user" {
-  description = "Password of the production user"
-  type        = string
-  sensitive   = true
-}
-
-variable "postgres_name_instance" {
-  description = "Name of the production user"
-  type        = string
-}
-
-variable "postgres_name_database" {
-  description = "Name of the production database prefix"
-  type        = string
-}
-
-variable "postgres_ip_public_database" {
-  description = "IP public database"
-  type        = bool
-}
-
-variable "postgres_user_name" {
-  description = "User name of the production database"
-  type        = string
-}
-
-variable "postgres_private_network" {
-  description = "Private network database"
-  type        = string
-}
-
 # Container variables for the Compute Engine instance
 variable "container_image" {
   description = "Image of the container"
@@ -120,7 +88,6 @@ variable "cloud_run_app_name" {
   description = "Name of the Cloud Run app"
   type        = string
 }
-
 
 variable "cloud_sql_instances_cloud_run" {
   description = "List of Cloud SQL instances"

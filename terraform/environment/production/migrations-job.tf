@@ -4,6 +4,7 @@ module "cloud_run_job_migrations" {
   service_job_name = var.cloud_run_migrations_name
   region_job       = var.region
 
+  # Cloud SQL instances to connect to the database (fluid-studioz)
   cloud_sql_instances_job = var.cloud_sql_instances_cloud_run
   vpc_network_job         = var.vpc_network_cloud_run
   vpc_subnet_job          = var.vpc_subnet_cloud_run
@@ -19,13 +20,4 @@ module "cloud_run_job_migrations" {
 
   # Cloud Run service account
   service_account_job_email = var.email_service_account
-
-  # Depends on
-  depends_on = [
-    google_sql_database.database_production,
-    google_sql_database.database_production_queue,
-    google_sql_database.database_production_cache,
-    google_sql_database.database_production_cable,
-    google_sql_user.users
-  ]
 }
