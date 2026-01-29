@@ -33,36 +33,36 @@ steps:
       ]
     id: push-latest
 
-#   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-#     args:
-#       [
-#         "run",
-#         "jobs",
-#         "update",
-#         "${_APP_NAME}-migrations",
-#         "--image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
-#         "--region=europe-west1",
-#         "--execute-now",
-#         "--wait",
-#       ]
-#     id: migrate
-#     entrypoint: gcloud
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    args:
+      [
+        "run",
+        "jobs",
+        "update",
+        "${_APP_NAME}-migrations",
+        "--image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--region=europe-west1",
+        "--execute-now",
+        "--wait",
+      ]
+    id: migrate
+    entrypoint: gcloud
 
-#   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-#     args:
-#       [
-#         "run",
-#         "services",
-#         "update",
-#         "${_APP_NAME}",
-#         "--platform=managed",
-#         "--image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
-#         "--region=europe-west1",
-#         "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
-#       ]
-#     id: deploy-production
-#     entrypoint: gcloud
-#     waitFor: ["migrate"]
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    args:
+      [
+        "run",
+        "services",
+        "update",
+        "${_APP_NAME}",
+        "--platform=managed",
+        "--image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--region=europe-west1",
+        "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
+      ]
+    id: deploy-production
+    entrypoint: gcloud
+    waitFor: ["migrate"]
 
 substitutions:
   _APP_NAME: "fluid-droplet-newulife-payment"
