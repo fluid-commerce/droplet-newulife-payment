@@ -47,3 +47,10 @@ node_modules
 
 # ignore environment files
 .env.local
+
+# ignore tooling files
+.tool-versions
+
+# terraform files
+.terraform/
+.terraform.lock.hcl
