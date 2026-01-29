@@ -2,7 +2,6 @@
 
 SERVICE=fluid-droplet-newulife-payment
 SERVICE_JOBS_MIGRATIONS=fluid-droplet-newulife-payment-migrations
-SERVICE_RAILS_JOBS_CONSOLE=fluid-droplet-newulife-payment-jobs-console
 IMAGE_URL=europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-newulife-payment-rails/web:latest
 
 # Variables array - add your variables here
@@ -32,6 +31,3 @@ gcloud run jobs update $SERVICE_JOBS_MIGRATIONS --region=europe-west1 --image $I
 echo "Updating Cloud Run service: $SERVICE"
 gcloud run services update $SERVICE --region=europe-west1 --image $IMAGE_URL $CLOUD_RUN_ENV_ARGS
 
-# Update the environment variables for the service rails jobs console Compute Engine
-echo "Updating Compute Engine instance: $SERVICE_RAILS_JOBS_CONSOLE"
-gcloud compute instances update-container $SERVICE_RAILS_JOBS_CONSOLE --zone=europe-west1-b $COMPUTE_ENV_ARGS
