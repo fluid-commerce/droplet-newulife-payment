@@ -1,0 +1,40 @@
+ARG RUBY_VERSION=3.4.2
+FROM ruby:$RUBY_VERSION
+ARG YARN_VERSION=4.7.0
+
+# Install dependencies
+RUN apt-get update -qq
+RUN apt-get install --no-install-recommends -y \
+    npm \
+    curl \
+    nodejs \
+    libpq-dev \
+    build-essential \
+    postgresql-client && \
+    npm install -g corepack && \
+    corepack enable && \
+    corepack prepare yarn@$YARN_VERSION --activate
+
+WORKDIR /rails
+
+# Install foreman
+RUN gem install foreman
+
+# Copy everything over
+COPY Gemfile Gemfile.lock ./
+
+# Install Ruby/Rails dependencies
+RUN gem install bundler:2.6.5 && \
+    bundle install
+
+# Yarn install
+COPY package.json yarn.lock .yarnrc.yml ./
+RUN yarn install
+
+# Add binstubs to PATH
+ENV PATH="/rails/bin:${PATH}"
+
+# Expose port 3000 for the rails server and 3036 for the vite server
+EXPOSE 3000 3036
+
+CMD ["foreman", "start", "-f", "Procfile.dev"]

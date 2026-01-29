@@ -1,0 +1,42 @@
+name: deploy production
+
+on:
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: fluid-417204
+  CLUIDBUILD_FILE: cloudbuild.yml
+
+jobs:
+  cloudbuild:
+    name: build, migrate, and deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - id: "auth"
+        name: "Authenticate to Google Cloud"
+        uses: "google-github-actions/auth@v2"
+        with:
+          token_format: access_token
+          project_id: ${{ env.PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_SA_JSON }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: ">= 475.0.0"
+          skip_install: true
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Install grpcio and set environment variable
+        run: |
+          pip install grpcio
+          echo "CLOUDSDK_PYTHON_SITEPACKAGES=1" >> $GITHUB_ENV
+
+      - name: Submit Cloud Build
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          gcloud beta builds submit --config ${{ env.CLUIDBUILD_FILE }} --region=europe-west1 --substitutions=COMMIT_SHA=${GITHUB_SHA::7},_TIMESTAMP=$TIMESTAMP --project ${{ env.PROJECT_ID }}

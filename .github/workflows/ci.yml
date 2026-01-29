@@ -57,18 +57,10 @@ jobs:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
 
-      - name: Restore Ruby dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            vendor/bundle
-            .bundle
-            tmp/cache
-          key: ${{ runner.os }}-ruby-${{ needs.system-setup.outputs.ruby-cache-key }}
-          fail-on-cache-miss: true
-
       - name: Scan for common Rails security vulnerabilities using static analysis
-        run: bin/brakeman --no-pager
+        run: |
+          gem install brakeman
+          bundle exec brakeman --no-pager
 
   rubocop:
     runs-on: ubuntu-latest
