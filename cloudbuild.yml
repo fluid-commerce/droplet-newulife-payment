@@ -64,21 +64,6 @@ steps:
     entrypoint: gcloud
     waitFor: ["migrate"]
 
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-    args:
-      [
-        "compute",
-        "instances",
-        "update-container",
-        "${_APP_NAME}-jobs-console",
-        "--zone=europe-west1-b",
-        "--container-image=europe-west1-docker.pkg.dev/${PROJECT_ID}/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
-        "--quiet",
-      ]
-    id: update-container-jobs-production
-    entrypoint: gcloud
-    waitFor: ["migrate"]
-
 substitutions:
   _APP_NAME: "fluid-droplet-newulife-payment"
   _APP_REPOSITORY: "fluid-droplets"
