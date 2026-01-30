@@ -42,6 +42,7 @@ end
 group :test do
   gem "capybara"
   gem "selenium-webdriver"
+  gem "webmock"
 end
 
 gem "dotenv", "~> 3.1"

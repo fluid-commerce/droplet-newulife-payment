@@ -8,7 +8,7 @@ describe DropletInstalledJob do
         "fluid_shop" => "test-shop-123",
         "name" => "Test Shop",
         "fluid_company_id" => 12345,
-        "company_droplet_uuid" => "test-uuid-123",
+        "droplet_uuid" => "test-uuid-123",
         "authentication_token" => "test-auth-token",
         "webhook_verification_token" => "test-verify-token",
       }

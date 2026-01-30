@@ -16,7 +16,7 @@ class CheckoutCallbackController < ApplicationController
 
     Rails.logger.info("CheckoutCallbackController user_check_response.dig('status') #{user_check_response.dig('status')}")
     if user_check_response.dig("status")&.zero?
-      #Create consumer in ByDesign
+      # Create consumer in ByDesign
       sponsor_rep_id = callback_params[:attribution]&.dig(:external_id) || "1"
       by_design_consumer = ByDesign.create_consumer(
         cart: cart_payload,
@@ -120,6 +120,10 @@ class CheckoutCallbackController < ApplicationController
       Rails.logger.info("Final Step checkout_response #{checkout_response.inspect}")
       Rails.logger.info("Final Step checkout_response['order']['order_confirmation_url'] #{checkout_response['order']['order_confirmation_url']}")
 
+      # Fallback: set ByDesign OrderID on MoolaPayment from checkout response (if Fluid includes it)
+      # Primary source is Fluid order.external_id_updated webhook; this avoids waiting for that webhook
+      update_moola_payment_from_checkout_response(cart_token, checkout_response)
+
       order_confirmation_url = checkout_response["order"]["order_confirmation_url"]
       redirect_to order_confirmation_url, allow_other_host: true
     else
@@ -184,7 +188,7 @@ private
           { product: [ :sku ] },
         ],
       ],
-      attribution: [:name, :email, :external_id, :share_guid]
+      attribution: %i[name email external_id share_guid]
     )
   end
 
@@ -249,5 +253,53 @@ private
         },
       ],
     }
+  end
+
+  # Extract ByDesign OrderID from Fluid checkout response (order.external_id).
+  # Used when we want to set it immediately from checkout response instead of waiting for order.external_id_updated webhook.
+  def bydesign_order_id_from_checkout_response(checkout_response)
+    order_data = checkout_response.is_a?(Hash) ? checkout_response["order"] : nil
+    return nil if order_data.blank?
+
+    value = order_data["external_id"] || order_data[:external_id]
+    value.present? ? value.to_s : nil
+  end
+
+  # Update MoolaPayment with ByDesign OrderID (and Fluid order id) from checkout response when present.
+  # Enqueues ByDesignPaymentRecordingJob if the payment becomes ready_to_record?
+  def update_moola_payment_from_checkout_response(cart_token, checkout_response)
+    bydesign_order_id = bydesign_order_id_from_checkout_response(checkout_response)
+    return if bydesign_order_id.blank?
+
+    moola_payment = MoolaPayment.find_by(cart_token: cart_token)
+    unless moola_payment
+      # Create placeholder so when Moola P2M arrives we can match by cart_token (FluidOrderExternalIdUpdatedJob will also create/update)
+      moola_payment = MoolaPayment.create!(
+        cart_token: cart_token,
+        invoice_number: MoolaPayment.format_invoice_number(cart_token),
+        bydesign_order_id: bydesign_order_id,
+        fluid_order_id: checkout_response.dig("order", "id") || checkout_response.dig("order", "order_id"),
+        fluid_webhook_payload: checkout_response,
+        status: :pending,
+      )
+      Rails.logger.info("[CheckoutCallback] Created MoolaPayment placeholder cart_token=#{cart_token} bydesign_order_id=#{bydesign_order_id}")
+      return
+    end
+
+    moola_payment.assign_attributes(
+      bydesign_order_id: bydesign_order_id,
+      fluid_order_id: checkout_response.dig("order", "id") ||
+                      checkout_response.dig("order", "order_id") ||
+                      moola_payment.fluid_order_id,
+      fluid_webhook_payload: checkout_response,
+    )
+    moola_payment.status = moola_payment.determine_status
+    moola_payment.matched_at = Time.current if moola_payment.matched? && moola_payment.matched_at.blank?
+    moola_payment.save!
+
+    if moola_payment.ready_to_record?
+      ByDesignPaymentRecordingJob.perform_later(moola_payment.id)
+      Rails.logger.info("[CheckoutCallback] Enqueued ByDesignPaymentRecordingJob for MoolaPayment id=#{moola_payment.id}")
+    end
   end
 end
