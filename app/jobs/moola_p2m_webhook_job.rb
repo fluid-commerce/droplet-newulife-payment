@@ -85,7 +85,7 @@ private
       moola_transaction_id: @payload[:transaction_id] || @payload[:id],
       kyc_status: kyc_status,
       transaction_type: transaction_type,
-      payment_details: normalize_payment_details,
+      payment_details: merge_payment_details(payment.payment_details),
       moola_webhook_payload: @payload
     )
 
@@ -128,6 +128,55 @@ private
       "transaction_id" => @payload[:id],
       "parent_reference" => @payload[:parent_reference],
     }.compact
+  end
+
+  # Merge incoming payment_details with existing ones, preserving the better status
+  # Status priority: Success > Pending > unknown
+  # This prevents later webhooks with "Pending" from overwriting "Success"
+  def merge_payment_details(existing_details)
+    incoming = normalize_payment_details
+    existing = existing_details || []
+
+    return incoming if existing.empty?
+
+    # Build a map of existing payment details by ID
+    existing_by_id = existing.index_by { |pd| pd["id"] }
+
+    incoming.map do |incoming_pd|
+      existing_pd = existing_by_id[incoming_pd["id"]]
+
+      if existing_pd
+        # Merge, but preserve the better status
+        merged = incoming_pd.merge(existing_pd) do |key, incoming_val, existing_val|
+          if key == "status"
+            better_status(incoming_val, existing_val)
+          else
+            # For other fields, prefer incoming (newer) value if present
+            incoming_val.present? ? incoming_val : existing_val
+          end
+        end
+        merged
+      else
+        incoming_pd
+      end
+    end
+  end
+
+  # Determine the better status between two values
+  # Priority: Success > Pending > Declined > unknown
+  STATUS_PRIORITY = {
+    "Success" => 1,
+    "Pending" => 2,
+    "Declined" => 3,
+    "Failed" => 3,
+  }.freeze
+
+  def better_status(status1, status2)
+    priority1 = STATUS_PRIORITY[status1] || 99
+    priority2 = STATUS_PRIORITY[status2] || 99
+
+    # Return the status with lower priority number (higher priority)
+    priority1 <= priority2 ? status1 : status2
   end
 
   def normalize_payment_details

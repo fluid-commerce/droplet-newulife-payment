@@ -203,6 +203,65 @@ describe MoolaP2mWebhookJob do
       _(payment.moola_webhook_payload["extra_field"]).must_equal "extra_value"
     end
 
+    describe "payment status preservation" do
+      it "preserves Success status when later webhook has Pending" do
+        # First webhook arrives with Success
+        MoolaPayment.create!(
+          cart_token: "status-test-cart",
+          invoice_number: "NULF-CT:status-test-cart",
+          payment_details: [
+            { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
+          ],
+          status: :pending
+        )
+
+        # Later webhook arrives with Pending status (should NOT downgrade)
+        payload = {
+          "type" => "transaction",
+          "transaction_type" => "p2m",
+          "invoice_number" => "NULF-CT:status-test-cart",
+          "kycStatus" => "APPROVE",
+          "payment_details" => [
+            { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY123", "status" => "Pending" },
+          ],
+        }
+
+        MoolaP2mWebhookJob.perform_now(payload)
+
+        payment = MoolaPayment.find_by(cart_token: "status-test-cart")
+        # Status should remain Success, not be downgraded to Pending
+        _(payment.payment_details.first["status"]).must_equal "Success"
+      end
+
+      it "upgrades Pending status to Success when better webhook arrives" do
+        # First webhook arrives with Pending
+        MoolaPayment.create!(
+          cart_token: "upgrade-test-cart",
+          invoice_number: "NULF-CT:upgrade-test-cart",
+          payment_details: [
+            { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY456", "status" => "Pending" },
+          ],
+          status: :pending
+        )
+
+        # Later webhook arrives with Success status (should upgrade)
+        payload = {
+          "type" => "transaction",
+          "transaction_type" => "p2m",
+          "invoice_number" => "NULF-CT:upgrade-test-cart",
+          "kycStatus" => "APPROVE",
+          "payment_details" => [
+            { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY456", "status" => "Success" },
+          ],
+        }
+
+        MoolaP2mWebhookJob.perform_now(payload)
+
+        payment = MoolaPayment.find_by(cart_token: "upgrade-test-cart")
+        _(payment.payment_details.first["status"]).must_equal "Success"
+      end
+    end
+
     describe "load_funds_via_card transaction type" do
       it "processes load_funds_via_card webhooks and extracts card details" do
         # First create a payment record (from P2M webhook)
