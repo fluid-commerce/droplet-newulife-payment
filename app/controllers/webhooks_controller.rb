@@ -33,19 +33,25 @@ private
   end
 
   def valid_auth_token?(company)
-    # Check header auth token first, then fall back to params
+    # Check header auth token first
     auth_header = request.headers["AUTH_TOKEN"] || request.headers["X-Auth-Token"]
     return true if auth_header.present? && auth_header == company.webhook_verification_token
 
-    # Fall back to webhook verification token in params
-    # TODO: Remove this we are confirmed to be using the auth token in the header
+    # Fall back to webhook verification token in params (only for droplet webhooks with nested company)
+    return false unless params[:company].present?
+
     company_params[:webhook_verification_token].present? &&
       company_params[:webhook_verification_token] == company.webhook_verification_token
   end
 
   def find_company
-    Company.find_by(company_droplet_uuid: company_params[:company_droplet_uuid]) ||
-      Company.find_by(fluid_company_id: company_params[:fluid_company_id])
+    # Try nested company object first (droplet webhooks), then root-level company_id (order webhooks)
+    if params[:company].present?
+      Company.find_by(company_droplet_uuid: company_params[:company_droplet_uuid]) ||
+        Company.find_by(fluid_company_id: company_params[:fluid_company_id])
+    elsif params[:company_id].present?
+      Company.find_by(fluid_company_id: params[:company_id])
+    end
   end
 
   def company_params
