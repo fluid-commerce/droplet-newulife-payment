@@ -13,5 +13,9 @@ Rails.application.config.to_prepare do
   EventHandler.register_handler("droplet.installed", DropletInstalledJob)
 
   # Order webhook handlers
+  # Primary: specific event for external_id changes (not currently triggered by Fluid Core integrations endpoint)
   EventHandler.register_handler("order.external_id_updated", FluidOrderExternalIdUpdatedJob)
+  # Fallback: listen to all order updates and check for external_id presence
+  # This handles the case where fluid-integrations updates external_id via the integrations endpoint
+  EventHandler.register_handler("order.updated", FluidOrderExternalIdUpdatedJob)
 end
