@@ -52,6 +52,8 @@ Layout/LineEndStringConcatenationIndentation:
 Layout/LineLength:
   Enabled: true
   Max: 120
+  AllowedPatterns:
+    - 'Rails\.logger\.'
 Layout/SpaceAfterColon:
   Enabled: true
 Layout/SpaceAfterComma:

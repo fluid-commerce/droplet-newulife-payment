@@ -10,7 +10,7 @@ class ByDesignPaymentService
   CARD_PAYMENT_TYPE = "LOAD_FUNDS_VIA_CARD"
   CASH_PAYMENT_TYPE = "LOAD_FUNDS_VIA_CASH"
   WALLET_PAYMENT_TYPES = %w[UWALLET_TRANSFER uwallet].freeze
-  SUPPORTED_PAYMENT_TYPES = ([CARD_PAYMENT_TYPE, CASH_PAYMENT_TYPE] + WALLET_PAYMENT_TYPES).freeze
+  SUPPORTED_PAYMENT_TYPES = ([ CARD_PAYMENT_TYPE, CASH_PAYMENT_TYPE ] + WALLET_PAYMENT_TYPES).freeze
 
   # Payment type mapping from Moola to ByDesign
   # All Moola payments use CreditCardAccountId 30
@@ -18,7 +18,7 @@ class ByDesignPaymentService
     CARD_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Card Payment" },
     "UWALLET_TRANSFER" => { credit_card_account_id: 30, description: "Moola Wallet Transfer" },
     "uwallet" => { credit_card_account_id: 30, description: "Moola Wallet" },
-    CASH_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Cash Payment" }
+    CASH_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Cash Payment" },
   }.freeze
 
   # Payment status mapping based on Moola guide:
@@ -29,7 +29,7 @@ class ByDesignPaymentService
     "Success" => 1,      # Normal/Approved
     "Pending" => 6,      # Pending
     "Declined" => 18,    # Declined - but these should typically be skipped
-    "Failed" => 18       # Declined
+    "Failed" => 18,       # Declined
   }.freeze
 
   # KYC status to PaymentStatusTypeID mapping
@@ -37,7 +37,7 @@ class ByDesignPaymentService
   KYC_STATUS_MAP = {
     "APPROVE" => nil,    # Use payment status
     "REVIEW" => 6,       # Pending
-    "DECLINE" => 18      # Declined
+    "DECLINE" => 18,      # Declined
   }.freeze
 
   DEFAULT_PAYMENT_STATUS = 6  # Pending - safer default than Success
@@ -133,7 +133,7 @@ private
     {
       "Authorization" => authorization,
       "Content-Type" => "application/json",
-      "Accept" => "application/json"
+      "Accept" => "application/json",
     }
   end
 
@@ -203,7 +203,7 @@ private
       ProcessorSpecificDetail1: invoice_number,          # invoice_number (e.g., "NULF-CT:cart123")
       ProcessorSpecificDetail2: autoship_reference,      # autoship_reference if present
       ProcessorSpecificDetail3: normalize_payment_type(payment_type),  # Payment type for differentiation
-      ProcessorSpecificDetail4: order_reference          # order_reference (same as TransactionID)
+      ProcessorSpecificDetail4: order_reference,          # order_reference (same as TransactionID)
     }
   end
 

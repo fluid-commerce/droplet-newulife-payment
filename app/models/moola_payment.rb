@@ -7,7 +7,7 @@ class MoolaPayment < ApplicationRecord
     recorded: 3,          # Successfully recorded in ByDesign
     failed: 4,            # Recording failed after max attempts
     kyc_pending: 5,       # KYC status is REVIEW
-    kyc_declined: 6       # KYC status is DECLINE
+    kyc_declined: 6,       # KYC status is DECLINE
   }, default: :pending
 
   # Validations

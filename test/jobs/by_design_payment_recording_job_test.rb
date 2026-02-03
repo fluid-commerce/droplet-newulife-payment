@@ -24,7 +24,7 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched
       )
@@ -65,7 +65,7 @@ describe ByDesignPaymentRecordingJob do
         kyc_status: "APPROVE",
         payment_details: [
           { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
-          { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Declined" }
+          { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Declined" },
         ],
         status: :matched
       )
@@ -94,7 +94,7 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Declined" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Declined" },
         ],
         status: :matched
       )
@@ -113,7 +113,7 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched
       )
@@ -141,7 +141,7 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched,
         bydesign_recording_attempts: 4  # One below max
@@ -169,7 +169,7 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "LOAD_FUNDS_VIA_CASH", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "LOAD_FUNDS_VIA_CASH", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched
       )
@@ -201,9 +201,10 @@ describe ByDesignPaymentRecordingJob do
         kyc_status: "APPROVE",
         payment_details: [
           { "type" => "uwallet", "amount" => "50.00", "id" => "PAY1", "status" => "Success" },
-          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "id" => "PAY2", "status" => "Success" }
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "id" => "PAY2", "status" => "Success" },
         ],
-        card_details: { "card_number_last4" => "4242", "expiry_date" => "12/2025", "payment_instrument_uuid" => "abc-uuid" },
+        card_details: { "card_number_last4" => "4242", "expiry_date" => "12/2025",
+"payment_instrument_uuid" => "abc-uuid", },
         status: :matched
       )
 
@@ -230,13 +231,14 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "VW1TMS2ZR6", "status" => "Success", "order_reference" => "TKW2BRL2OP" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "VW1TMS2ZR6", "status" => "Success",
+"order_reference" => "TKW2BRL2OP", },
         ],
         moola_webhook_payload: {
           "order_reference" => "TKW2BRL2OP",
           "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0",
           "autoship_reference" => "G2XYS6ZBBZ",
-          "completed_at" => "1767187441840"
+          "completed_at" => "1767187441840",
         },
         status: :matched
       )
@@ -270,16 +272,17 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "878.00", "id" => "EZC1236EQI", "status" => "Success", "order_reference" => "TKW2BRL2OP" }
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "878.00", "id" => "EZC1236EQI", "status" => "Success",
+"order_reference" => "TKW2BRL2OP", },
         ],
         card_details: {
           "card_number_last4" => "7999",
           "expiry_date" => "8/2029",
-          "payment_instrument_uuid" => "50713565-6801-4064-b3a4-ea5a27bbab1c"
+          "payment_instrument_uuid" => "50713565-6801-4064-b3a4-ea5a27bbab1c",
         },
         moola_webhook_payload: {
           "order_reference" => "TKW2BRL2OP",
-          "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0"
+          "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0",
         },
         status: :matched
       )

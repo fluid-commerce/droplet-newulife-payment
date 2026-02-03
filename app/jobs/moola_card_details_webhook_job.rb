@@ -40,12 +40,12 @@ private
       "expiry_year" => @payload[:expiry_year] || @payload.dig(:card, :expiry_year),
       "card_type" => @payload[:card_type] || @payload.dig(:card, :type),
       "brand" => @payload[:brand] || @payload.dig(:card, :brand),
-      "payment_instrument_uuid" => @payload[:payment_instrument_uuid]
+      "payment_instrument_uuid" => @payload[:payment_instrument_uuid],
     }.compact
   end
 
   def find_by_payment_detail_id(transaction_id)
     # Search for payments where payment_details contains this transaction ID
-    MoolaPayment.where("payment_details @> ?", [{ "id" => transaction_id }].to_json).first
+    MoolaPayment.where("payment_details @> ?", [ { "id" => transaction_id } ].to_json).first
   end
 end

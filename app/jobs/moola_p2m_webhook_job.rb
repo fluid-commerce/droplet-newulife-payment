@@ -92,7 +92,7 @@ private
           "amount" => pd[:amount] || pd["amount"],
           "id" => pd[:id] || pd["id"],
           "status" => pd[:status] || pd["status"],
-          "currency" => pd[:currency] || pd["currency"]
+          "currency" => pd[:currency] || pd["currency"],
         }.compact
       end
   end

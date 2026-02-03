@@ -16,8 +16,8 @@ describe MoolaP2mWebhookJob do
         "transaction_id" => "TXN456",
         "kycStatus" => "APPROVE",
         "payment_details" => [
-          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY789", "status" => "Success" }
-        ]
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY789", "status" => "Success" },
+        ],
       }
 
       _(-> { MoolaP2mWebhookJob.perform_now(payload) }).must_change "MoolaPayment.count", +1
@@ -38,7 +38,7 @@ describe MoolaP2mWebhookJob do
         "transaction_type" => "p2b",  # Not P2M
         "invoice_number" => "NULF-CT:cart-123",
         "kycStatus" => "APPROVE",
-        "payment_details" => []
+        "payment_details" => [],
       }
 
       _(-> { MoolaP2mWebhookJob.perform_now(payload) }).wont_change "MoolaPayment.count"
@@ -50,7 +50,7 @@ describe MoolaP2mWebhookJob do
         "transaction_type" => "p2m",
         "invoice_number" => "invalid-format",
         "kycStatus" => "APPROVE",
-        "payment_details" => []
+        "payment_details" => [],
       }
 
       _(-> { MoolaP2mWebhookJob.perform_now(payload) }).wont_change "MoolaPayment.count"
@@ -65,15 +65,15 @@ describe MoolaP2mWebhookJob do
         "payment_details" => [
           { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
           { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Declined" },
-          { "type" => "uwallet", "amount" => "25.00", "id" => "PAY3", "status" => "Pending" }
-        ]
+          { "type" => "uwallet", "amount" => "25.00", "id" => "PAY3", "status" => "Pending" },
+        ],
       }
 
       MoolaP2mWebhookJob.perform_now(payload)
 
       payment = MoolaPayment.last
       _(payment.payment_details.length).must_equal 2
-      _(payment.payment_details.map { |pd| pd["id"] }).must_equal ["PAY1", "PAY3"]
+      _(payment.payment_details.map { |pd| pd["id"] }).must_equal %w[PAY1 PAY3]
     end
 
     it "sets status to kyc_pending when KYC is REVIEW" do
@@ -83,8 +83,8 @@ describe MoolaP2mWebhookJob do
         "invoice_number" => "NULF-CT:cart-789",
         "kycStatus" => "REVIEW",
         "payment_details" => [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" }
-        ]
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
+        ],
       }
 
       MoolaP2mWebhookJob.perform_now(payload)
@@ -100,8 +100,8 @@ describe MoolaP2mWebhookJob do
         "invoice_number" => "NULF-CT:cart-declined",
         "kycStatus" => "DECLINE",
         "payment_details" => [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" }
-        ]
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
+        ],
       }
 
       MoolaP2mWebhookJob.perform_now(payload)
@@ -126,8 +126,8 @@ describe MoolaP2mWebhookJob do
         "kycStatus" => "APPROVE",
         "transaction_id" => "TXN999",
         "payment_details" => [
-          { "type" => "uwallet", "amount" => "75.00", "id" => "PAY999", "status" => "Success" }
-        ]
+          { "type" => "uwallet", "amount" => "75.00", "id" => "PAY999", "status" => "Success" },
+        ],
       }
 
       _(-> { MoolaP2mWebhookJob.perform_now(payload) }).wont_change "MoolaPayment.count"
@@ -155,8 +155,8 @@ describe MoolaP2mWebhookJob do
         "invoice_number" => "NULF-CT:ready-cart",
         "kycStatus" => "APPROVE",
         "payment_details" => [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
-        ]
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
+        ],
       }
 
       assert_enqueued_with(job: ByDesignPaymentRecordingJob) do
@@ -178,8 +178,8 @@ describe MoolaP2mWebhookJob do
         "invoice_number" => "NULF-CT:review-cart",
         "kycStatus" => "REVIEW",
         "payment_details" => [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
-        ]
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
+        ],
       }
 
       assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob) do
@@ -194,7 +194,7 @@ describe MoolaP2mWebhookJob do
         "invoice_number" => "NULF-CT:audit-cart",
         "kycStatus" => "APPROVE",
         "payment_details" => [],
-        "extra_field" => "extra_value"
+        "extra_field" => "extra_value",
       }
 
       MoolaP2mWebhookJob.perform_now(payload)

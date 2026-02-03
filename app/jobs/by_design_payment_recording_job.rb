@@ -47,7 +47,7 @@ private
 
     if recordable_payments.empty?
       Rails.logger.info("[ByDesignPaymentRecordingJob] No recordable payments (all declined)")
-      return [{ payment_id: nil, success: true, skipped: true }]
+      return [ { payment_id: nil, success: true, skipped: true } ]
     end
 
     # Extract P2M webhook data for API field mapping
@@ -70,7 +70,7 @@ private
         success: result[:success],
         skipped: result[:skipped],
         response: result[:response],
-        error: result[:error]
+        error: result[:error],
       }
     end
   end
@@ -85,7 +85,7 @@ private
       "client_uuid" => payload["client_uuid"],
       "invoice_number" => @moola_payment.invoice_number,
       "autoship_reference" => payload["autoship_reference"],
-      "completed_at" => payload["completed_at"]
+      "completed_at" => payload["completed_at"],
     }
   end
 
