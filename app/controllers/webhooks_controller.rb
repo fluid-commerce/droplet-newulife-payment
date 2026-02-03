@@ -25,9 +25,17 @@ private
 
   def authenticate_webhook_token
     company = find_company
+
+    # Debug logging for webhook auth
+    auth_header = request.headers["AUTH_TOKEN"] || request.headers["X-Auth-Token"]
+    Rails.logger.info("[WebhookAuth] company_id=#{params[:company_id]}, company_found=#{company.present?}")
+    Rails.logger.info("[WebhookAuth] AUTH_TOKEN header present=#{auth_header.present?}, value=#{auth_header&.first(10)}...")
+    Rails.logger.info("[WebhookAuth] Expected token=#{company&.webhook_verification_token&.first(10)}...") if company
+
     if company.blank?
       render json: { error: "Company not found" }, status: :not_found
     elsif !valid_auth_token?(company)
+      Rails.logger.warn("[WebhookAuth] Token mismatch or missing for company_id=#{params[:company_id]}")
       render json: { error: "Unauthorized" }, status: :unauthorized
     end
   end
