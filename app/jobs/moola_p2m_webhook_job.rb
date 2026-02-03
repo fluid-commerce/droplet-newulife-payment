@@ -3,14 +3,18 @@ class MoolaP2mWebhookJob < ApplicationJob
 
   retry_on StandardError, attempts: 3, wait: :polynomially_longer
 
+  # Supported transaction types from Moola webhooks
+  TRANSACTION_TYPE_P2M = "p2m".freeze
+  TRANSACTION_TYPE_CARD = "load_funds_via_card".freeze
+
   def perform(payload)
     @payload = ActiveSupport::HashWithIndifferentAccess.new(payload)
 
     Rails.logger.info("[MoolaP2mWebhookJob] Processing: invoice=#{invoice_number}, type=#{transaction_type}")
 
-    # Validate this is a P2M transaction
-    unless valid_p2m_transaction?
-      Rails.logger.warn("[MoolaP2mWebhookJob] Skipping non-P2M transaction: #{transaction_type}")
+    # Validate this is a supported transaction type
+    unless valid_transaction?
+      Rails.logger.warn("[MoolaP2mWebhookJob] Skipping unsupported transaction type: #{transaction_type}")
       return
     end
 
@@ -24,8 +28,12 @@ class MoolaP2mWebhookJob < ApplicationJob
     # Find or create payment record
     moola_payment = find_or_create_payment(cart_token)
 
-    # Update with Moola data
-    update_payment_record(moola_payment)
+    # Process based on transaction type
+    if card_details_transaction?
+      update_card_details(moola_payment)
+    else
+      update_payment_record(moola_payment)
+    end
 
     # Check if we can proceed to recording (if Fluid webhook already arrived)
     if moola_payment.ready_to_record?
@@ -53,8 +61,16 @@ private
     @payload[:payment_details] || []
   end
 
-  def valid_p2m_transaction?
-    @payload[:type] == "transaction" && transaction_type == "p2m"
+  def valid_transaction?
+    @payload[:type] == "transaction" && (p2m_transaction? || card_details_transaction?)
+  end
+
+  def p2m_transaction?
+    transaction_type == TRANSACTION_TYPE_P2M
+  end
+
+  def card_details_transaction?
+    transaction_type == TRANSACTION_TYPE_CARD
   end
 
   def find_or_create_payment(cart_token)
@@ -82,6 +98,38 @@ private
     payment.save!
   end
 
+  # Update card details from load_funds_via_card webhook
+  # These webhooks contain: card_number_last4, expiry_date, payment_instrument_uuid
+  def update_card_details(payment)
+    card_details = extract_card_details
+    return if card_details.empty?
+
+    Rails.logger.info("[MoolaP2mWebhookJob] Updating card details for cart_token=#{payment.cart_token}")
+
+    # Merge with existing card details (in case of multiple card payments)
+    existing_details = payment.card_details || {}
+    payment.card_details = existing_details.merge(card_details)
+
+    # Also update KYC status if present (it's included in card webhooks too)
+    payment.kyc_status = kyc_status if kyc_status.present? && payment.kyc_status.blank?
+
+    # Re-evaluate status after updating card details
+    payment.status = payment.determine_status
+    payment.matched_at = Time.current if payment.matched? && payment.matched_at.blank?
+
+    payment.save!
+  end
+
+  def extract_card_details
+    {
+      "card_number_last4" => @payload[:card_number_last4],
+      "expiry_date" => @payload[:expiry_date],
+      "payment_instrument_uuid" => @payload[:payment_instrument_uuid],
+      "transaction_id" => @payload[:id],
+      "parent_reference" => @payload[:parent_reference],
+    }.compact
+  end
+
   def normalize_payment_details
     # Filter out declined payments and normalize the remaining ones
     payment_details
@@ -93,6 +141,7 @@ private
           "id" => pd[:id] || pd["id"],
           "status" => pd[:status] || pd["status"],
           "currency" => pd[:currency] || pd["currency"],
+          "order_reference" => pd[:order_reference] || pd["order_reference"],
         }.compact
       end
   end
