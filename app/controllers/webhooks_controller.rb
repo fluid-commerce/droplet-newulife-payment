@@ -42,7 +42,8 @@ private
 
   def valid_auth_token?(company)
     # Check header auth token first
-    auth_header = request.headers["AUTH_TOKEN"] || request.headers["X-Auth-Token"]
+    # Note: Rails transforms HTTP headers - AUTH_TOKEN becomes HTTP_AUTH_TOKEN
+    auth_header = request.headers["HTTP_AUTH_TOKEN"] || request.headers["AUTH_TOKEN"] || request.headers["X-Auth-Token"]
     return true if auth_header.present? && auth_header == company.webhook_verification_token
 
     # Fall back to webhook verification token in params (only for droplet webhooks with nested company)
