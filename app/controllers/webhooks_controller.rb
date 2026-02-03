@@ -49,8 +49,10 @@ private
     if params[:company].present?
       Company.find_by(company_droplet_uuid: company_params[:company_droplet_uuid]) ||
         Company.find_by(fluid_company_id: company_params[:fluid_company_id])
-    elsif params[:company_id].present?
-      Company.find_by(fluid_company_id: params[:company_id])
+    else
+      # Try root-level company_id, then nested under payload
+      company_id = params[:company_id] || params.dig(:payload, :company_id)
+      Company.find_by(fluid_company_id: company_id) if company_id.present?
     end
   end
 

@@ -5,7 +5,8 @@ class FluidOrderExternalIdUpdatedJob < WebhookEventJob
     Rails.logger.info("[FluidOrderExternalIdUpdatedJob] Processing order update")
 
     # Extract order data from payload
-    order_data = get_payload.dig("order") || get_payload
+    # Handle both root-level order and nested under "payload" key
+    order_data = get_payload.dig("order") || get_payload.dig("payload", "order") || get_payload
 
     cart_token = order_data["cart_token"]
     external_id = order_data["external_id"]  # ByDesign OrderID
