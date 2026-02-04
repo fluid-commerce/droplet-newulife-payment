@@ -53,12 +53,16 @@ private
     # Extract P2M webhook data for API field mapping
     p2m_data = build_p2m_data
 
+    # Extract billing address from Fluid webhook payload
+    billing_address = build_billing_address
+
     recordable_payments.map do |payment_detail|
       result = ByDesignPaymentService.record_payment(
         order_id: @moola_payment.bydesign_order_id,
         payment_detail: payment_detail,
         p2m_data: p2m_data,
         card_details: @moola_payment.card_details,
+        billing_address: billing_address,
         kyc_status: @moola_payment.kyc_status
       )
 
@@ -86,6 +90,30 @@ private
       "invoice_number" => @moola_payment.invoice_number,
       "autoship_reference" => payload["autoship_reference"],
       "completed_at" => payload["completed_at"],
+      "from_account_name" => payload["from_account_name"],
+    }
+  end
+
+  # Build billing address hash from Fluid webhook payload
+  # Uses ship_to address from the Fluid order as billing address
+  def build_billing_address
+    fluid_payload = @moola_payment.fluid_webhook_payload || {}
+    order_data = fluid_payload["order"] || fluid_payload
+
+    # Try ship_to first (preferred), then shipping_address as fallback
+    address = order_data["ship_to"] || order_data["shipping_address"] || {}
+
+    {
+      "name" => address["name"],
+      "first_name" => address["first_name"] || order_data["first_name"],
+      "last_name" => address["last_name"] || order_data["last_name"],
+      "address1" => address["address1"],
+      "address2" => address["address2"],
+      "city" => address["city"],
+      "state" => address["state"],
+      "subdivision_code" => address["subdivision_code"],
+      "country_code" => address["country_code"],
+      "postal_code" => address["postal_code"],
     }
   end
 

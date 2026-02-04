@@ -272,6 +272,8 @@ private
   # Also sets bydesign_order_id if present in checkout response (fallback path).
   def ensure_moola_payment_link(cart_token, checkout_response)
     fluid_order_id = checkout_response.dig("order", "id") || checkout_response.dig("order", "order_id")
+    # Normalize to string for consistent database lookups (column is string type)
+    fluid_order_id = fluid_order_id.to_s if fluid_order_id.present?
     bydesign_order_id = bydesign_order_id_from_checkout_response(checkout_response)
 
     moola_payment = MoolaPayment.find_by(cart_token: cart_token)
