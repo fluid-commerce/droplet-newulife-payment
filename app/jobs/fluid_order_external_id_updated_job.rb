@@ -28,28 +28,14 @@ class FluidOrderExternalIdUpdatedJob < WebhookEventJob
     moola_payment = if cart_token.present?
       MoolaPayment.find_by(cart_token: cart_token)
     else
-      MoolaPayment.find_by(fluid_order_id: fluid_order_id) if fluid_order_id.present?
+      MoolaPayment.find_by(fluid_order_id: fluid_order_id)
     end
 
     unless moola_payment
       # No existing record found - this shouldn't happen if checkout callback ran correctly
       # Log warning but don't create a record without cart_token (we need it for Moola webhook matching)
-      Rails.logger.warn("[FluidOrderExternalIdUpdatedJob] No MoolaPayment found for fluid_order_id=#{fluid_order_id.inspect} (type: #{fluid_order_id.class}). " \
-                        "Checkout callback may not have created the record. " \
-                        "Checking if any records exist with similar fluid_order_id...")
-      # Debug: check if there are any records with this fluid_order_id (try both string and integer representations)
-      if fluid_order_id.present?
-        # Try both string and integer representations in case of type mismatch
-        alt_value = fluid_order_id.to_i.to_s
-        similar = if alt_value != fluid_order_id
-          MoolaPayment.where("fluid_order_id = ? OR fluid_order_id = ?", fluid_order_id, alt_value).limit(5)
-        else
-          MoolaPayment.where(fluid_order_id: fluid_order_id).limit(5)
-        end
-        if similar.any?
-          Rails.logger.warn("[FluidOrderExternalIdUpdatedJob] Found #{similar.count} similar records: #{similar.pluck(:id, :fluid_order_id).inspect}")
-        end
-      end
+      Rails.logger.warn("[FluidOrderExternalIdUpdatedJob] No MoolaPayment found for fluid_order_id=#{fluid_order_id}. " \
+                        "Checkout callback may not have created the record.")
       return
     end
 

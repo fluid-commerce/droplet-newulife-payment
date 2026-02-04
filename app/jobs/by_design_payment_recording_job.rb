@@ -10,14 +10,12 @@ class ByDesignPaymentRecordingJob < ApplicationJob
     Rails.logger.info("[ByDesignPaymentRecordingJob] Recording payment: #{@moola_payment.cart_token}, " \
                       "OrderID=#{@moola_payment.bydesign_order_id}")
 
-    # Validate state
-    unless @moola_payment.ready_to_record? || @moola_payment.matched?
-      Rails.logger.warn("[ByDesignPaymentRecordingJob] Payment not ready: status=#{@moola_payment.status}")
+    # Use database lock to prevent race conditions with duplicate webhooks
+    # This ensures only one job can claim and process this payment
+    unless claim_for_recording
+      Rails.logger.info("[ByDesignPaymentRecordingJob] Payment already processing or not ready: status=#{@moola_payment.status}")
       return
     end
-
-    # Mark as recording
-    @moola_payment.update!(status: :recording)
 
     # Record each payment detail to ByDesign
     results = record_payments_to_bydesign
@@ -38,6 +36,21 @@ class ByDesignPaymentRecordingJob < ApplicationJob
   end
 
 private
+
+  # Atomically claim this payment for recording using database lock
+  # Returns true if successfully claimed, false if already processing or not ready
+  def claim_for_recording
+    claimed = false
+
+    @moola_payment.with_lock do
+      if @moola_payment.ready_to_record? || @moola_payment.matched?
+        @moola_payment.update!(status: :recording)
+        claimed = true
+      end
+    end
+
+    claimed
+  end
 
   def record_payments_to_bydesign
     # Filter out any declined payments that might have slipped through
