@@ -22,13 +22,8 @@ class FluidOrderExternalIdUpdatedJob < WebhookEventJob
 
     Rails.logger.info("[FluidOrderExternalIdUpdatedJob] fluid_order_id=#{fluid_order_id}, external_id=#{external_id}, cart_token=#{cart_token || 'not provided'}")
 
-    # Find the Moola payment record
-    # Try cart_token first (if provided), then fall back to fluid_order_id
-    moola_payment = if cart_token.present?
-      MoolaPayment.find_by(cart_token: cart_token)
-    else
-      MoolaPayment.find_by(fluid_order_id: fluid_order_id)
-    end
+    # Find the Moola payment record by cart_token first, then fall back to fluid_order_id
+    moola_payment = MoolaPayment.find_by(cart_token: cart_token) || MoolaPayment.find_by(fluid_order_id: fluid_order_id)
 
     unless moola_payment
       # No existing record found - this shouldn't happen if checkout callback ran correctly
