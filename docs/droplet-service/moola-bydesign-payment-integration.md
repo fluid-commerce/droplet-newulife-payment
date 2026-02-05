@@ -14,7 +14,7 @@ This document describes the integration between Moola (UWallet) payment webhooks
 1. Customer checks out via Fluid; the droplet creates a Moola checkout session with a unique **invoice number** (`NULF-CT:{cart_token}`).
 2. Customer pays on Moola; Moola sends **P2M** and optionally **load_funds_via_card** webhooks to this droplet.
 3. The droplet needs a **ByDesign Order ID** to record payments. This comes from either:
-   - **Fluid order webhook** `order.external_id_updated` (payload includes `cart_token` and `external_id` = ByDesign Order ID), or
+   - **Fluid order webhook** `order.external_id_synced` (payload includes `cart_token` and `external_id` = ByDesign Order ID), or
    - **Checkout response fallback**: if Fluid includes the ByDesign order ID in the checkout response, the droplet sets it on the payment record immediately after checkout.
 4. When both Moola payment data and ByDesign Order ID are present (and KYC is approved), the droplet calls **ByDesign Payment API** to record each payment line (card, wallet transfer, etc.).
 
@@ -37,7 +37,7 @@ This document describes the integration between Moola (UWallet) payment webhooks
 
 | Source   | Event / Type              | Job / behavior |
 |----------|---------------------------|----------------|
-| Fluid    | `order.external_id_updated` | **FluidOrderExternalIdUpdatedJob**: finds or creates `MoolaPayment` by `cart_token`, sets `fluid_order_id` and `bydesign_order_id` from payload (`external_id` = ByDesign Order ID). If payment becomes `ready_to_record?`, enqueues **ByDesignPaymentRecordingJob**. |
+| Fluid    | `order.external_id_synced` | **FluidOrderExternalIdUpdatedJob**: finds or creates `MoolaPayment` by `cart_token`, sets `fluid_order_id` and `bydesign_order_id` from payload (`external_id` = ByDesign Order ID). If payment becomes `ready_to_record?`, enqueues **ByDesignPaymentRecordingJob**. |
 | Moola    | `transaction` / `p2m`     | **MoolaP2mWebhookJob**: finds or creates `MoolaPayment` by `invoice_number` (extracts `cart_token`), updates with P2M payload (payment_details, kyc_status, etc.). If `ready_to_record?`, enqueues **ByDesignPaymentRecordingJob**. |
 | Moola    | `transaction` / `load_funds_via_card` | **MoolaCardDetailsWebhookJob**: stores card details (last4, expiry, payment_instrument_uuid) keyed by transaction `id` for use when recording LOAD_FUNDS_VIA_CARD payments. |
 
@@ -56,7 +56,7 @@ This document describes the integration between Moola (UWallet) payment webhooks
 
 This gives two ways to get the ByDesign Order ID into the droplet:
 
-1. **Primary**: Fluid sends `order.external_id_updated` with `order.cart_token` and `order.external_id` (ByDesign Order ID).
+1. **Primary**: Fluid sends `order.external_id_synced` with `order.cart_token` and `order.external_id` (ByDesign Order ID).
 2. **Fallback**: Fluid includes the ByDesign order ID in the checkout response as `order.external_id`.
 
 ---
@@ -66,7 +66,7 @@ This gives two ways to get the ByDesign Order ID into the droplet:
 1. **get_redirect_url**: Create Moola order with `invoiceNumber: NULF-CT:{cart_token}`. No `MoolaPayment` is created here.
 2. **Customer pays on Moola**: Moola may send `load_funds_via_card` then `p2m` (or vice versa).
 3. **success (checkout callback)**: Call Fluid payment + checkout. If checkout response contains ByDesign order ID (configurable keys), create or update `MoolaPayment` with `bydesign_order_id` and enqueue recording if ready.
-4. **Fluid** (optional): Send `order.external_id_updated` with `cart_token` and `external_id` (ByDesign Order ID). **FluidOrderExternalIdUpdatedJob** updates (or creates) `MoolaPayment` and enqueues recording if ready.
+4. **Fluid** (optional): Send `order.external_id_synced` with `cart_token` and `external_id` (ByDesign Order ID). **FluidOrderExternalIdUpdatedJob** updates (or creates) `MoolaPayment` and enqueues recording if ready.
 5. **Moola P2M**: **MoolaP2mWebhookJob** finds or creates `MoolaPayment` by `invoice_number`, updates Moola data; enqueues recording if ready.
 6. **ByDesignPaymentRecordingJob**: For each payment detail, call ByDesign CreditCard Save; update status to recorded or failed.
 
@@ -74,7 +74,7 @@ This gives two ways to get the ByDesign Order ID into the droplet:
 
 ### Webhook Registration
 
-- **Fluid**: Register a webhook for resource `order`, event `external_id_updated`, pointing to this droplet’s webhook URL (e.g. `POST /webhook`). Payload must include `order.cart_token` and `order.external_id` (ByDesign Order ID). See [Registering your first webhook](registering-first-webhook.md).
+- **Fluid**: Register a webhook for resource `order`, event `external_id_synced`, pointing to this droplet's webhook URL (e.g. `POST /webhook`). Payload must include `order.cart_token` and `order.external_id` (ByDesign Order ID). See [Registering your first webhook](registering-first-webhook.md).
 - **Moola**: Configure Moola to send transaction webhooks to this droplet (URL and auth as required by Moola). The droplet expects `type=transaction` and `transaction_type=p2m` or `load_funds_via_card` in the JSON body.
 
 ---
@@ -96,7 +96,7 @@ Other existing env (e.g. Fluid API, Moola/UPayments, droplet host URLs) are unch
 - **Jobs**: `app/jobs/moola_p2m_webhook_job.rb`, `app/jobs/moola_card_details_webhook_job.rb`, `app/jobs/fluid_order_external_id_updated_job.rb`, `app/jobs/by_design_payment_recording_job.rb`
 - **Services**: `app/services/by_design_payment_service.rb`
 - **Controllers**: `app/controllers/checkout_callback_controller.rb` (success callback + `update_moola_payment_from_checkout_response`, `bydesign_order_id_from_checkout_response`)
-- **Config**: `config/initializers/event_handler.rb` (register `order.external_id_updated` → `FluidOrderExternalIdUpdatedJob`)
+- **Config**: `config/initializers/event_handler.rb` (register `order.external_id_synced` → `FluidOrderExternalIdUpdatedJob`)
 - **Payload**: `app/services/u_payments_order_payload_generator.rb` (invoice number via `MoolaPayment.format_invoice_number`)
 - **Migrations**: `db/migrate/*_create_moola_payments.rb`
 
