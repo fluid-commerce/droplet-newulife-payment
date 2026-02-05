@@ -365,7 +365,8 @@ describe MoolaP2mWebhookJob do
           invoice_number: "NULF-CT:ready-for-card",
           bydesign_order_id: "BD55555",
           kyc_status: "APPROVE",
-          payment_details: [ { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY555", "status" => "Success" } ],
+          payment_details: [ { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY555",
+"status" => "Success", } ],
           status: :pending
         )
 
