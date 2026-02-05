@@ -24,7 +24,6 @@ class FluidOrderExternalIdUpdatedJob < WebhookEventJob
 
     # Find the Moola payment record
     # Try cart_token first (if provided), then fall back to fluid_order_id
-    # Note: order.updated webhook does NOT include cart_token, so we rely on fluid_order_id
     moola_payment = if cart_token.present?
       MoolaPayment.find_by(cart_token: cart_token)
     else

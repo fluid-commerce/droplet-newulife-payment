@@ -121,8 +121,7 @@ class CheckoutCallbackController < ApplicationController
       Rails.logger.info("Final Step checkout_response['order']['order_confirmation_url'] #{checkout_response['order']['order_confirmation_url']}")
 
       # Always create/update MoolaPayment to link cart_token with fluid_order_id
-      # This is critical because order.updated webhook does NOT include cart_token
-      # (the cart is converted to an order), so we need this link to find the record later
+      # This ensures the record exists when the order.external_id_synced webhook arrives
       ensure_moola_payment_link(cart_token, checkout_response)
 
       order_confirmation_url = checkout_response["order"]["order_confirmation_url"]
@@ -266,9 +265,7 @@ private
   end
 
   # Always create or update MoolaPayment to link cart_token with fluid_order_id.
-  # This is critical because order.updated webhook does NOT include cart_token
-  # (the cart is converted to an order), so we need this link to find the record
-  # when the webhook arrives with only the fluid_order_id.
+  # This ensures the record exists when the order.external_id_synced webhook arrives.
   # Also sets bydesign_order_id if present in checkout response (fallback path).
   def ensure_moola_payment_link(cart_token, checkout_response)
     fluid_order_id = checkout_response.dig("order", "id") || checkout_response.dig("order", "order_id")
