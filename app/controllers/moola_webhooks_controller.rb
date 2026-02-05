@@ -17,21 +17,6 @@ class MoolaWebhooksController < ApplicationController
     head :internal_server_error
   end
 
-  # POST /webhooks/moola/card_details
-  # Receives card details for LOAD_FUNDS_VIA_CARD payments
-  def card_details
-    Rails.logger.info("[MoolaWebhook] Received card details webhook: #{sanitized_log_params}")
-
-    MoolaCardDetailsWebhookJob.perform_later(webhook_payload)
-    head :accepted
-  rescue JSON::ParserError => e
-    Rails.logger.error("[MoolaWebhook] JSON parse error: #{e.message}")
-    head :bad_request
-  rescue StandardError => e
-    Rails.logger.error("[MoolaWebhook] Error processing card details webhook: #{e.class} - #{e.message}")
-    head :internal_server_error
-  end
-
 private
 
   def webhook_payload
