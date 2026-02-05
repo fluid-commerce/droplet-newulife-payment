@@ -106,7 +106,7 @@ describe ByDesignPaymentService do
         "order_reference" => "TKW2BRL2OP",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request|
           body = JSON.parse(request.body)
           # Verify correct field mappings per API docs
@@ -123,7 +123,7 @@ describe ByDesignPaymentService do
         }
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -148,7 +148,7 @@ describe ByDesignPaymentService do
         "order_reference" => "TKW2BRL2OP",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request|
           body = JSON.parse(request.body)
           # Wallet payments should NOT have card fields
@@ -159,7 +159,7 @@ describe ByDesignPaymentService do
         }
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -181,7 +181,7 @@ describe ByDesignPaymentService do
         "status" => "Success",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 500,
           body: "Internal Server Error"
@@ -205,7 +205,7 @@ describe ByDesignPaymentService do
         "status" => "Success",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_timeout
 
       result = ByDesignPaymentService.record_payment(
@@ -292,7 +292,7 @@ describe ByDesignPaymentService do
         }
         p2m_data = { "order_reference" => "TKW2BRL2OP", "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, card_details, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, card_details, {}, "APPROVE")
 
         _(payload[:PaymentToken]).must_equal "abc-123-uuid"
         _(payload[:Last4CCNumber]).must_equal "4242"
@@ -308,7 +308,7 @@ describe ByDesignPaymentService do
         }
         p2m_data = { "order_reference" => "TKW2BRL2OP", "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload.key?(:PaymentToken)).must_equal false
         _(payload.key?(:Last4CCNumber)).must_equal false
@@ -330,7 +330,7 @@ describe ByDesignPaymentService do
           "autoship_reference" => "G2XYS6ZBBZ",
         }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         # Required fields
         _(payload[:OrderID]).must_equal 12345
@@ -361,7 +361,7 @@ describe ByDesignPaymentService do
         }
         p2m_data = { "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload[:Amount]).must_equal 0
         _(payload[:PromissoryAmount]).must_equal 100.0
@@ -376,7 +376,7 @@ describe ByDesignPaymentService do
         }
         p2m_data = { "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload[:Amount]).must_equal 100.0
         _(payload[:PromissoryAmount]).must_equal 0
@@ -391,7 +391,7 @@ describe ByDesignPaymentService do
         }
         p2m_data = { "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload[:Amount]).must_equal 0
         _(payload[:PromissoryAmount]).must_equal 50.0
@@ -484,8 +484,8 @@ describe ByDesignPaymentService do
 
     it "parses successful response" do
       response = OpenStruct.new(
-        code: 200,
-        body: { "Result" => { "IsSuccessful" => true } }.to_json
+        code: 201,
+        body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json
       )
 
       result = service.send(:parse_response, response)
