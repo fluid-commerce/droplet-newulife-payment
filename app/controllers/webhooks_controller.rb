@@ -38,13 +38,16 @@ private
     # Check header auth token first
     # Note: Rails transforms HTTP headers - AUTH_TOKEN becomes HTTP_AUTH_TOKEN
     auth_header = request.headers["HTTP_AUTH_TOKEN"] || request.headers["AUTH_TOKEN"] || request.headers["X-Auth-Token"]
-    return true if auth_header.present? && auth_header == company.webhook_verification_token
+    if auth_header.present?
+      return ActiveSupport::SecurityUtils.secure_compare(auth_header, company.webhook_verification_token)
+    end
 
     # Fall back to webhook verification token in params (only for droplet webhooks with nested company)
     return false unless params[:company].present?
 
-    company_params[:webhook_verification_token].present? &&
-      company_params[:webhook_verification_token] == company.webhook_verification_token
+    param_token = company_params[:webhook_verification_token]
+    param_token.present? &&
+      ActiveSupport::SecurityUtils.secure_compare(param_token, company.webhook_verification_token)
   end
 
   def find_company

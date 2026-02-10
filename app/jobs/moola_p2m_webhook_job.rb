@@ -133,21 +133,23 @@ private
   # Merge incoming payment_details with existing ones, preserving the better status
   # Status priority: Success > Pending > unknown
   # This prevents later webhooks with "Pending" from overwriting "Success"
+  # Also preserves existing entries that are not in the incoming webhook (e.g., partial re-sends)
   def merge_payment_details(existing_details)
     incoming = normalize_payment_details
     existing = existing_details || []
 
     return incoming if existing.empty?
 
-    # Build a map of existing payment details by ID
-    existing_by_id = existing.index_by { |pd| pd["id"] }
+    # Build a map starting from existing payment details
+    merged_by_id = existing.index_by { |pd| pd["id"] }
 
-    incoming.map do |incoming_pd|
-      existing_pd = existing_by_id[incoming_pd["id"]]
+    # Merge incoming entries, updating or adding as needed
+    incoming.each do |incoming_pd|
+      existing_pd = merged_by_id[incoming_pd["id"]]
 
       if existing_pd
         # Merge, but preserve the better status
-        merged = incoming_pd.merge(existing_pd) do |key, incoming_val, existing_val|
+        merged_by_id[incoming_pd["id"]] = incoming_pd.merge(existing_pd) do |key, incoming_val, existing_val|
           if key == "status"
             better_status(incoming_val, existing_val)
           else
@@ -155,11 +157,12 @@ private
             incoming_val.present? ? incoming_val : existing_val
           end
         end
-        merged
       else
-        incoming_pd
+        merged_by_id[incoming_pd["id"]] = incoming_pd
       end
     end
+
+    merged_by_id.values
   end
 
   # Determine the better status between two values

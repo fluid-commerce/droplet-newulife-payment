@@ -260,6 +260,37 @@ describe MoolaP2mWebhookJob do
         payment = MoolaPayment.find_by(cart_token: "upgrade-test-cart")
         _(payment.payment_details.first["status"]).must_equal "Success"
       end
+
+      it "preserves existing payment details not present in incoming webhook" do
+        # First webhook arrives with two payment details
+        MoolaPayment.create!(
+          cart_token: "preserve-test-cart",
+          invoice_number: "NULF-CT:preserve-test-cart",
+          payment_details: [
+            { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
+            { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Success" },
+          ],
+          status: :pending
+        )
+
+        # Later webhook (re-send) arrives with only one payment detail
+        payload = {
+          "type" => "transaction",
+          "transaction_type" => "p2m",
+          "invoice_number" => "NULF-CT:preserve-test-cart",
+          "kycStatus" => "APPROVE",
+          "payment_details" => [
+            { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
+          ],
+        }
+
+        MoolaP2mWebhookJob.perform_now(payload)
+
+        payment = MoolaPayment.find_by(cart_token: "preserve-test-cart")
+        # Both payment details should be preserved
+        _(payment.payment_details.length).must_equal 2
+        _(payment.payment_details.map { |pd| pd["id"] }.sort).must_equal %w[PAY1 PAY2]
+      end
     end
 
     describe "load_funds_via_card transaction type" do
