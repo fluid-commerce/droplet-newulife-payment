@@ -267,10 +267,8 @@ private
         bydesign_order_id: bydesign_order_id || moola_payment.bydesign_order_id,
         fluid_webhook_payload: checkout_response
       )
-      moola_payment.status = moola_payment.determine_status
-      moola_payment.matched_at = Time.current if moola_payment.matched? && moola_payment.matched_at.blank?
-      moola_payment.save!
-      Rails.logger.info("[CheckoutCallback] Updated MoolaPayment id=#{moola_payment.id} with fluid_order_id=#{fluid_order_id}")
+      enqueued = moola_payment.update_status_and_enqueue_if_ready!
+      Rails.logger.info("[CheckoutCallback] Updated MoolaPayment id=#{moola_payment.id} with fluid_order_id=#{fluid_order_id}, recording_enqueued=#{enqueued}")
     else
       # Create new record linking cart_token to fluid_order_id
       moola_payment = MoolaPayment.create!(
@@ -282,12 +280,12 @@ private
         status: :pending
       )
       Rails.logger.info("[CheckoutCallback] Created MoolaPayment id=#{moola_payment.id} cart_token=#{cart_token} fluid_order_id=#{fluid_order_id}")
-    end
 
-    # Trigger recording if ready (bydesign_order_id present and moola data present)
-    if moola_payment.ready_to_record?
-      ByDesignPaymentRecordingJob.perform_later(moola_payment.id)
-      Rails.logger.info("[CheckoutCallback] Enqueued ByDesignPaymentRecordingJob for MoolaPayment id=#{moola_payment.id}")
+      # Check if ready to record (e.g., if Moola webhook arrived before checkout completed)
+      if moola_payment.ready_to_record?
+        ByDesignPaymentRecordingJob.perform_later(moola_payment.id)
+        Rails.logger.info("[CheckoutCallback] Enqueued ByDesignPaymentRecordingJob for MoolaPayment id=#{moola_payment.id}")
+      end
     end
   end
 end

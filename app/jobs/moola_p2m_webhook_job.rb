@@ -28,16 +28,11 @@ class MoolaP2mWebhookJob < ApplicationJob
     # Find or create payment record
     moola_payment = find_or_create_payment(cart_token)
 
-    # Process based on transaction type
+    # Process based on transaction type (each method handles status update and job enqueue)
     if card_details_transaction?
       update_card_details(moola_payment)
     else
       update_payment_record(moola_payment)
-    end
-
-    # Check if we can proceed to recording (if Fluid webhook already arrived)
-    if moola_payment.ready_to_record?
-      ByDesignPaymentRecordingJob.perform_later(moola_payment.id)
     end
 
     Rails.logger.info("[MoolaP2mWebhookJob] Completed: cart_token=#{cart_token}, status=#{moola_payment.status}")
@@ -74,10 +69,12 @@ private
   end
 
   def find_or_create_payment(cart_token)
-    MoolaPayment.find_or_initialize_by(cart_token: cart_token).tap do |payment|
-      # Always set invoice_number from the actual webhook if not set
-      payment.invoice_number = invoice_number if payment.invoice_number.blank?
+    MoolaPayment.find_or_create_by!(cart_token: cart_token) do |payment|
+      payment.invoice_number = invoice_number
     end
+  rescue ActiveRecord::RecordNotUnique
+    # Handle race condition: another process created the record between our check and insert
+    MoolaPayment.find_by!(cart_token: cart_token)
   end
 
   def update_payment_record(payment)
@@ -89,13 +86,8 @@ private
       moola_webhook_payload: @payload
     )
 
-    # Use model's determine_status to handle race conditions correctly
-    payment.status = payment.determine_status
-
-    # Set matched_at timestamp if transitioning to matched
-    payment.matched_at = Time.current if payment.matched? && payment.matched_at.blank?
-
-    payment.save!
+    # Update status and enqueue recording job if ready
+    payment.update_status_and_enqueue_if_ready!
   end
 
   # Update card details from load_funds_via_card webhook
@@ -113,11 +105,8 @@ private
     # Also update KYC status if present (it's included in card webhooks too)
     payment.kyc_status = kyc_status if kyc_status.present? && payment.kyc_status.blank?
 
-    # Re-evaluate status after updating card details
-    payment.status = payment.determine_status
-    payment.matched_at = Time.current if payment.matched? && payment.matched_at.blank?
-
-    payment.save!
+    # Update status and enqueue recording job if ready
+    payment.update_status_and_enqueue_if_ready!
   end
 
   def extract_card_details
