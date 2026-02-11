@@ -2,11 +2,17 @@ class FluidOrderExternalIdUpdatedJob < WebhookEventJob
   # Inherits retry behavior from WebhookEventJob
 
   def process_webhook
-    Rails.logger.info("[FluidOrderExternalIdUpdatedJob] Processing order update")
+    Rails.logger.info("[FluidOrderExternalIdUpdatedJob] Processing order.external_id_synced webhook")
 
     # Extract order data from payload
-    # Handle both root-level order and nested under "payload" key
-    order_data = get_payload.dig("order") || get_payload.dig("payload", "order") || get_payload
+    # Expected structure: { "order": { ... } } or { "payload": { "order": { ... } } }
+    order_data = get_payload.dig("order") || get_payload.dig("payload", "order")
+
+    unless order_data
+      Rails.logger.warn("[FluidOrderExternalIdUpdatedJob] Unexpected payload structure - missing 'order' key. " \
+                        "Keys present: #{get_payload.keys.join(', ')}")
+      return
+    end
 
     cart_token = order_data["cart_token"]
     external_id = order_data["external_id"]  # ByDesign OrderID

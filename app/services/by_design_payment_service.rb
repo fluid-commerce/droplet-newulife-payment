@@ -42,6 +42,30 @@ class ByDesignPaymentService
 
   DEFAULT_PAYMENT_STATUS = 6  # Pending - safer default than Success
 
+  # Country code mappings from ISO to ByDesign format
+  # ByDesign expects uppercase country names (CANADA, USA, etc.)
+  # Reference: ByDesign active countries list in by_design.rb
+  COUNTRY_CODE_MAP = {
+    "US" => "USA",
+    "CA" => "CANADA",
+    "GB" => "UNITED KINGDOM",
+    "UK" => "UNITED KINGDOM",
+    "AU" => "AUSTRALIA",
+    "NZ" => "NEW ZEALAND",
+    "MX" => "MEXICO",
+    "HK" => "HONG KONG",
+    "TW" => "TAIWAN",
+    "SG" => "SINGAPORE",
+    "MY" => "MALAYSIA",
+    "JP" => "JAPAN",
+    "TH" => "THAILAND",
+    "KR" => "KOREA (THE REPUBLIC OF)",
+    "CN" => "CHINA",
+    "DE" => "GERMANY",
+    "NL" => "NETHERLANDS",
+    "BE" => "BELGIUM",
+  }.freeze
+
   class << self
     # Record a payment to ByDesign
     #
@@ -268,28 +292,11 @@ private
   end
 
   # Normalize country code to full country name for ByDesign
-  # ByDesign expects "USA" not "US"
+  # ByDesign expects uppercase country names (e.g., "USA" not "US")
   def normalize_country_code(country_code)
     return nil unless country_code.present?
 
-    # Common mappings - expand as needed
-    country_mappings = {
-      "US" => "USA",
-      "CA" => "Canada",
-      "GB" => "United Kingdom",
-      "UK" => "United Kingdom",
-      "AU" => "Australia",
-      "NZ" => "New Zealand",
-      "MX" => "Mexico",
-      "HK" => "Hong Kong",
-      "TW" => "Taiwan",
-      "SG" => "Singapore",
-      "MY" => "Malaysia",
-      "JP" => "Japan",
-      "TH" => "Thailand",
-    }
-
-    country_mappings[country_code.upcase] || country_code
+    COUNTRY_CODE_MAP[country_code.upcase] || country_code
   end
 
   def add_card_payment_fields(payload, payment_detail, card_details)
