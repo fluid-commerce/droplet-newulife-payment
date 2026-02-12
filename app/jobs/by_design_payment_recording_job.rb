@@ -39,12 +39,15 @@ private
 
   # Atomically claim this payment for recording using database lock
   # Returns true if successfully claimed, false if already processing or not ready
+  #
+  # Accepts :recording status (set by update_status_and_enqueue_if_ready!)
+  # or :matched status (legacy path / retry after failure sets back to matched)
   def claim_for_recording
     claimed = false
 
     @moola_payment.with_lock do
-      if @moola_payment.ready_to_record? || @moola_payment.matched?
-        @moola_payment.update!(status: :recording)
+      if @moola_payment.recording? || @moola_payment.matched?
+        @moola_payment.update!(status: :recording) unless @moola_payment.recording?
         claimed = true
       end
     end

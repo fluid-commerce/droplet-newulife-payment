@@ -243,7 +243,7 @@ describe MoolaPayment do
       MoolaPayment.delete_all
     end
 
-    it "updates status based on determine_status" do
+    it "updates status to recording when ready to record" do
       payment = MoolaPayment.create!(
         cart_token: "status-update-test",
         invoice_number: "NULF-CT:status-update-test",
@@ -255,7 +255,8 @@ describe MoolaPayment do
 
       payment.update_status_and_enqueue_if_ready!
 
-      _(payment.reload.status).must_equal "matched"
+      # Status transitions to :recording when ready (prevents duplicate job enqueues)
+      _(payment.reload.status).must_equal "recording"
     end
 
     it "sets matched_at when transitioning to matched" do

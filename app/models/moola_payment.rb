@@ -89,7 +89,10 @@ class MoolaPayment < ApplicationRecord
   #
   # The method works in two phases:
   # 1. Save all in-memory attribute changes (status, matched_at, etc.)
-  # 2. Use pessimistic locking to atomically check and enqueue
+  # 2. Use pessimistic locking to atomically claim for recording
+  #
+  # The job is enqueued OUTSIDE the transaction to avoid issues when callers
+  # (like WebhookEventJob subclasses) wrap this in their own transaction.
   #
   # @return [Boolean] true if recording job was enqueued
   def update_status_and_enqueue_if_ready!
@@ -98,20 +101,24 @@ class MoolaPayment < ApplicationRecord
     self.matched_at = Time.current if matched? && matched_at.blank?
     save!
 
-    # Phase 2: Atomically check and enqueue with pessimistic lock
-    # This prevents duplicate job enqueues when concurrent webhooks race
+    # Phase 2: Atomically claim for recording with pessimistic lock
+    # Transition to :recording inside the lock prevents duplicate enqueues
+    should_enqueue = false
     self.class.transaction do
       locked_record = self.class.lock.find(id)
 
       # Skip if already processing or in a terminal state
-      return false if locked_record.recording? || locked_record.recorded? || locked_record.failed?
+      break if locked_record.recording? || locked_record.recorded? || locked_record.failed?
 
-      # Only enqueue if the saved state is ready for recording
+      # Atomically transition to :recording and flag for enqueue
       if locked_record.ready_to_record?
-        ByDesignPaymentRecordingJob.perform_later(id)
-        return true
+        locked_record.update_columns(status: self.class.statuses[:recording])
+        should_enqueue = true
       end
     end
-    false
+
+    # Enqueue outside the transaction to avoid nested transaction issues
+    ByDesignPaymentRecordingJob.perform_later(id) if should_enqueue
+    should_enqueue
   end
 end
