@@ -7,7 +7,7 @@ class MoolaPayment < ApplicationRecord
     recorded: 3,          # Successfully recorded in ByDesign
     failed: 4,            # Recording failed after max attempts
     kyc_pending: 5,       # KYC status is REVIEW
-    kyc_declined: 6       # KYC status is DECLINE
+    kyc_declined: 6,       # KYC status is DECLINE
   }, default: :pending
 
   # Validations
@@ -77,5 +77,22 @@ class MoolaPayment < ApplicationRecord
 
   def max_attempts_reached?
     bydesign_recording_attempts >= MAX_RECORDING_ATTEMPTS
+  end
+
+  # Update status based on current state, save, and enqueue recording job if ready.
+  # This consolidates the repeated pattern across controllers and jobs.
+  #
+  # @return [Boolean] true if recording job was enqueued
+  def update_status_and_enqueue_if_ready!
+    self.status = determine_status
+    self.matched_at = Time.current if matched? && matched_at.blank?
+    save!
+
+    if ready_to_record?
+      ByDesignPaymentRecordingJob.perform_later(id)
+      true
+    else
+      false
+    end
   end
 end

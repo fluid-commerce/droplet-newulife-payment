@@ -10,7 +10,7 @@ class ByDesignPaymentService
   CARD_PAYMENT_TYPE = "LOAD_FUNDS_VIA_CARD"
   CASH_PAYMENT_TYPE = "LOAD_FUNDS_VIA_CASH"
   WALLET_PAYMENT_TYPES = %w[UWALLET_TRANSFER uwallet].freeze
-  SUPPORTED_PAYMENT_TYPES = ([CARD_PAYMENT_TYPE, CASH_PAYMENT_TYPE] + WALLET_PAYMENT_TYPES).freeze
+  SUPPORTED_PAYMENT_TYPES = ([ CARD_PAYMENT_TYPE, CASH_PAYMENT_TYPE ] + WALLET_PAYMENT_TYPES).freeze
 
   # Payment type mapping from Moola to ByDesign
   # All Moola payments use CreditCardAccountId 30
@@ -18,7 +18,7 @@ class ByDesignPaymentService
     CARD_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Card Payment" },
     "UWALLET_TRANSFER" => { credit_card_account_id: 30, description: "Moola Wallet Transfer" },
     "uwallet" => { credit_card_account_id: 30, description: "Moola Wallet" },
-    CASH_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Cash Payment" }
+    CASH_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Cash Payment" },
   }.freeze
 
   # Payment status mapping based on Moola guide:
@@ -29,7 +29,7 @@ class ByDesignPaymentService
     "Success" => 1,      # Normal/Approved
     "Pending" => 6,      # Pending
     "Declined" => 18,    # Declined - but these should typically be skipped
-    "Failed" => 18       # Declined
+    "Failed" => 18,       # Declined
   }.freeze
 
   # KYC status to PaymentStatusTypeID mapping
@@ -37,10 +37,34 @@ class ByDesignPaymentService
   KYC_STATUS_MAP = {
     "APPROVE" => nil,    # Use payment status
     "REVIEW" => 6,       # Pending
-    "DECLINE" => 18      # Declined
+    "DECLINE" => 18,      # Declined
   }.freeze
 
   DEFAULT_PAYMENT_STATUS = 6  # Pending - safer default than Success
+
+  # Country code mappings from ISO to ByDesign format
+  # ByDesign expects uppercase country names (CANADA, USA, etc.)
+  # Reference: ByDesign active countries list in by_design.rb
+  COUNTRY_CODE_MAP = {
+    "US" => "USA",
+    "CA" => "CANADA",
+    "GB" => "UNITED KINGDOM",
+    "UK" => "UNITED KINGDOM",
+    "AU" => "AUSTRALIA",
+    "NZ" => "NEW ZEALAND",
+    "MX" => "MEXICO",
+    "HK" => "HONG KONG",
+    "TW" => "TAIWAN",
+    "SG" => "SINGAPORE",
+    "MY" => "MALAYSIA",
+    "JP" => "JAPAN",
+    "TH" => "THAILAND",
+    "KR" => "KOREA (THE REPUBLIC OF)",
+    "CN" => "CHINA",
+    "DE" => "GERMANY",
+    "NL" => "NETHERLANDS",
+    "BE" => "BELGIUM",
+  }.freeze
 
   class << self
     # Record a payment to ByDesign
@@ -57,17 +81,26 @@ class ByDesignPaymentService
     #   - "client_uuid" => Client UUID for PersistentToken (e.g., "94d15bf3-...")
     #   - "invoice_number" => Invoice number with prefix (e.g., "NULF-CT:cart123")
     #   - "autoship_reference" => Autoship reference if present (e.g., "G2XYS6ZBBZ")
+    #   - "from_account_name" => Cardholder name from Moola (e.g., "Emma Stone")
     # @param card_details [Hash] Card details from load_funds_via_card webhook (card payments only)
     #   - "card_number_last4" => Last 4 digits (e.g., "7999")
     #   - "expiry_date" => Expiry date (e.g., "8/2029")
     #   - "payment_instrument_uuid" => Payment token UUID
+    # @param billing_address [Hash] Billing/shipping address from Fluid order
+    #   - "name" => Full name (e.g., "ezequiel Mastantuono")
+    #   - "address1" => Street address (e.g., "123 California Ave")
+    #   - "city" => City (e.g., "Santa Monica")
+    #   - "state" => State code (e.g., "CA")
+    #   - "country_code" => Country code (e.g., "US")
+    #   - "postal_code" => Postal code (e.g., "90403")
     # @param kyc_status [String] KYC status from webhook ("APPROVE", "REVIEW", "DECLINE")
-    def record_payment(order_id:, payment_detail:, p2m_data: {}, card_details: {}, kyc_status: nil)
+    def record_payment(order_id:, payment_detail:, p2m_data: {}, card_details: {}, billing_address: {}, kyc_status: nil)
       new.record_payment(
         order_id: order_id,
         payment_detail: payment_detail,
         p2m_data: p2m_data,
         card_details: card_details,
+        billing_address: billing_address,
         kyc_status: kyc_status
       )
     end
@@ -95,21 +128,21 @@ class ByDesignPaymentService
     end
   end
 
-  def record_payment(order_id:, payment_detail:, p2m_data: {}, card_details: {}, kyc_status: nil)
+  def record_payment(order_id:, payment_detail:, p2m_data: {}, card_details: {}, billing_address: {}, kyc_status: nil)
     # Skip declined payments at processor level
     if self.class.should_skip_payment?(payment_detail)
       Rails.logger.info("[ByDesignPaymentService] Skipping declined payment: #{payment_detail['id']}")
       return { success: true, skipped: true, reason: "Payment declined at processor level" }
     end
 
-    payload = build_payment_payload(order_id, payment_detail, p2m_data, card_details, kyc_status)
+    payload = build_payment_payload(order_id, payment_detail, p2m_data, card_details, billing_address, kyc_status)
 
     Rails.logger.info("[ByDesignPaymentService] Recording payment: OrderID=#{order_id}, " \
                       "Amount=#{payment_detail['amount']}, Type=#{payment_detail['type']}, KYC=#{kyc_status}")
     Rails.logger.debug("[ByDesignPaymentService] Payload: #{payload.to_json}")
 
     response = self.class.post(
-      "/api/Personal/Order/Payment/CreditCard/Save",
+      "/api/order/Payment/CreditCard/Save",
       headers: headers,
       body: payload.to_json,
       timeout: DEFAULT_TIMEOUT
@@ -133,7 +166,7 @@ private
     {
       "Authorization" => authorization,
       "Content-Type" => "application/json",
-      "Accept" => "application/json"
+      "Accept" => "application/json",
     }
   end
 
@@ -142,12 +175,15 @@ private
     "Basic #{Base64.strict_encode64(credentials).strip}"
   end
 
-  def build_payment_payload(order_id, payment_detail, p2m_data, card_details, kyc_status)
+  def build_payment_payload(order_id, payment_detail, p2m_data, card_details, billing_address, kyc_status)
     payment_type = payment_detail["type"]
     type_config = get_payment_type_config(payment_type)
 
     # Build base payload common to all payment types
     payload = build_base_payload(order_id, payment_detail, p2m_data, type_config, kyc_status)
+
+    # Add required billing address fields (required by ByDesign API)
+    add_billing_address_fields(payload, billing_address, p2m_data)
 
     # Add type-specific fields based on the payment type
     if self.class.card_payment?(payment_type)
@@ -203,7 +239,7 @@ private
       ProcessorSpecificDetail1: invoice_number,          # invoice_number (e.g., "NULF-CT:cart123")
       ProcessorSpecificDetail2: autoship_reference,      # autoship_reference if present
       ProcessorSpecificDetail3: normalize_payment_type(payment_type),  # Payment type for differentiation
-      ProcessorSpecificDetail4: order_reference          # order_reference (same as TransactionID)
+      ProcessorSpecificDetail4: order_reference,          # order_reference (same as TransactionID)
     }
   end
 
@@ -234,6 +270,33 @@ private
     else
       Time.current.iso8601
     end
+  end
+
+  # Add required billing address fields
+  # ByDesign API requires: CardHolderName, Address1, City, State, Country, PostalCode
+  def add_billing_address_fields(payload, billing_address, p2m_data)
+    billing_address ||= {}
+
+    # CardHolderName: prefer from_account_name from Moola, fallback to billing address name
+    cardholder_name = p2m_data["from_account_name"].presence ||
+                      billing_address["name"].presence ||
+                      [ billing_address["first_name"], billing_address["last_name"] ].compact.join(" ").presence
+
+    payload[:CardHolderName] = cardholder_name
+    payload[:Address1] = billing_address["address1"]
+    payload[:Address2] = billing_address["address2"] if billing_address["address2"].present?
+    payload[:City] = billing_address["city"]
+    payload[:State] = billing_address["state"] || billing_address["subdivision_code"]
+    payload[:Country] = normalize_country_code(billing_address["country_code"])
+    payload[:PostalCode] = billing_address["postal_code"]
+  end
+
+  # Normalize country code to full country name for ByDesign
+  # ByDesign expects uppercase country names (e.g., "USA" not "US")
+  def normalize_country_code(country_code)
+    return nil unless country_code.present?
+
+    COUNTRY_CODE_MAP[country_code.upcase] || country_code
   end
 
   def add_card_payment_fields(payload, payment_detail, card_details)
@@ -356,17 +419,21 @@ private
   end
 
   def parse_response(response)
-    if response.code == 200
-      body = parse_json_safely(response.body)
+    body = parse_json_safely(response.body)
 
-      if body.dig("Result", "IsSuccessful") || body["success"]
+    # The /api/order/Payment/CreditCard/Save endpoint returns:
+    # - 201 with { "Result": {...}, "IsSuccessful": true } on success
+    # - 400/500 with { "IsSuccessful": false, "Message": "..." } on error
+    if response.code == 200 || response.code == 201
+      if body["IsSuccessful"] == true || body.dig("Result", "ID").present?
         { success: true, response: body, error: nil }
       else
-        error_msg = body.dig("Result", "Message") || body["message"] || "Unknown error"
+        error_msg = body["Message"] || body.dig("Result", "Message") || "Unknown error"
         { success: false, response: body, error: error_msg }
       end
     else
-      { success: false, response: response.body, error: "HTTP #{response.code}: #{response.message}" }
+      error_msg = body["Message"] || "HTTP #{response.code}: #{response.message}"
+      { success: false, response: body, error: error_msg }
     end
   end
 

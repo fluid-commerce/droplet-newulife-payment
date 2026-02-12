@@ -47,7 +47,7 @@ class UPaymentsOrderPayloadGenerator
     }
   end
 
-  private
+private
 
   def conditional_sales_tax
     return {} unless cart[:tax_total].present?

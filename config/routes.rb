@@ -7,7 +7,6 @@ Rails.application.routes.draw do
 
   # Moola webhook endpoints
   post "webhooks/moola/p2m", to: "moola_webhooks#p2m", as: :moola_p2m_webhook
-  post "webhooks/moola/card_details", to: "moola_webhooks#card_details", as: :moola_card_details_webhook
 
   namespace :admin do
     get "dashboard/index"

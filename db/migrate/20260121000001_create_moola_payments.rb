@@ -40,6 +40,6 @@ class CreateMoolaPayments < ActiveRecord::Migration[8.0]
     add_index :moola_payments, :fluid_order_id
     add_index :moola_payments, :bydesign_order_id
     add_index :moola_payments, :status
-    add_index :moola_payments, [:status, :created_at]
+    add_index :moola_payments, %i[status created_at]
   end
 end

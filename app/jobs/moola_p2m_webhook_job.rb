@@ -3,14 +3,18 @@ class MoolaP2mWebhookJob < ApplicationJob
 
   retry_on StandardError, attempts: 3, wait: :polynomially_longer
 
+  # Supported transaction types from Moola webhooks
+  TRANSACTION_TYPE_P2M = "p2m".freeze
+  TRANSACTION_TYPE_CARD = "load_funds_via_card".freeze
+
   def perform(payload)
     @payload = ActiveSupport::HashWithIndifferentAccess.new(payload)
 
     Rails.logger.info("[MoolaP2mWebhookJob] Processing: invoice=#{invoice_number}, type=#{transaction_type}")
 
-    # Validate this is a P2M transaction
-    unless valid_p2m_transaction?
-      Rails.logger.warn("[MoolaP2mWebhookJob] Skipping non-P2M transaction: #{transaction_type}")
+    # Validate this is a supported transaction type
+    unless valid_transaction?
+      Rails.logger.warn("[MoolaP2mWebhookJob] Skipping unsupported transaction type: #{transaction_type}")
       return
     end
 
@@ -24,12 +28,11 @@ class MoolaP2mWebhookJob < ApplicationJob
     # Find or create payment record
     moola_payment = find_or_create_payment(cart_token)
 
-    # Update with Moola data
-    update_payment_record(moola_payment)
-
-    # Check if we can proceed to recording (if Fluid webhook already arrived)
-    if moola_payment.ready_to_record?
-      ByDesignPaymentRecordingJob.perform_later(moola_payment.id)
+    # Process based on transaction type (each method handles status update and job enqueue)
+    if card_details_transaction?
+      update_card_details(moola_payment)
+    else
+      update_payment_record(moola_payment)
     end
 
     Rails.logger.info("[MoolaP2mWebhookJob] Completed: cart_token=#{cart_token}, status=#{moola_payment.status}")
@@ -53,15 +56,25 @@ private
     @payload[:payment_details] || []
   end
 
-  def valid_p2m_transaction?
-    @payload[:type] == "transaction" && transaction_type == "p2m"
+  def valid_transaction?
+    @payload[:type] == "transaction" && (p2m_transaction? || card_details_transaction?)
+  end
+
+  def p2m_transaction?
+    transaction_type == TRANSACTION_TYPE_P2M
+  end
+
+  def card_details_transaction?
+    transaction_type == TRANSACTION_TYPE_CARD
   end
 
   def find_or_create_payment(cart_token)
-    MoolaPayment.find_or_initialize_by(cart_token: cart_token).tap do |payment|
-      # Always set invoice_number from the actual webhook if not set
-      payment.invoice_number = invoice_number if payment.invoice_number.blank?
+    MoolaPayment.find_or_create_by!(cart_token: cart_token) do |payment|
+      payment.invoice_number = invoice_number
     end
+  rescue ActiveRecord::RecordNotUnique
+    # Handle race condition: another process created the record between our check and insert
+    MoolaPayment.find_by!(cart_token: cart_token)
   end
 
   def update_payment_record(payment)
@@ -69,17 +82,93 @@ private
       moola_transaction_id: @payload[:transaction_id] || @payload[:id],
       kyc_status: kyc_status,
       transaction_type: transaction_type,
-      payment_details: normalize_payment_details,
+      payment_details: merge_payment_details(payment.payment_details),
       moola_webhook_payload: @payload
     )
 
-    # Use model's determine_status to handle race conditions correctly
-    payment.status = payment.determine_status
+    # Update status and enqueue recording job if ready
+    payment.update_status_and_enqueue_if_ready!
+  end
 
-    # Set matched_at timestamp if transitioning to matched
-    payment.matched_at = Time.current if payment.matched? && payment.matched_at.blank?
+  # Update card details from load_funds_via_card webhook
+  # These webhooks contain: card_number_last4, expiry_date, payment_instrument_uuid
+  def update_card_details(payment)
+    card_details = extract_card_details
+    return if card_details.empty?
 
-    payment.save!
+    Rails.logger.info("[MoolaP2mWebhookJob] Updating card details for cart_token=#{payment.cart_token}")
+
+    # Merge with existing card details (in case of multiple card payments)
+    existing_details = payment.card_details || {}
+    payment.card_details = existing_details.merge(card_details)
+
+    # Also update KYC status if present (it's included in card webhooks too)
+    payment.kyc_status = kyc_status if kyc_status.present? && payment.kyc_status.blank?
+
+    # Update status and enqueue recording job if ready
+    payment.update_status_and_enqueue_if_ready!
+  end
+
+  def extract_card_details
+    {
+      "card_number_last4" => @payload[:card_number_last4],
+      "expiry_date" => @payload[:expiry_date],
+      "payment_instrument_uuid" => @payload[:payment_instrument_uuid],
+      "transaction_id" => @payload[:id],
+      "parent_reference" => @payload[:parent_reference],
+    }.compact
+  end
+
+  # Merge incoming payment_details with existing ones, preserving the better status
+  # Status priority: Success > Pending > unknown
+  # This prevents later webhooks with "Pending" from overwriting "Success"
+  # Also preserves existing entries that are not in the incoming webhook (e.g., partial re-sends)
+  def merge_payment_details(existing_details)
+    incoming = normalize_payment_details
+    existing = existing_details || []
+
+    return incoming if existing.empty?
+
+    # Build a map starting from existing payment details
+    merged_by_id = existing.index_by { |pd| pd["id"] }
+
+    # Merge incoming entries, updating or adding as needed
+    incoming.each do |incoming_pd|
+      existing_pd = merged_by_id[incoming_pd["id"]]
+
+      if existing_pd
+        # Merge, but preserve the better status
+        merged_by_id[incoming_pd["id"]] = incoming_pd.merge(existing_pd) do |key, incoming_val, existing_val|
+          if key == "status"
+            better_status(incoming_val, existing_val)
+          else
+            # For other fields, prefer incoming (newer) value if present
+            incoming_val.present? ? incoming_val : existing_val
+          end
+        end
+      else
+        merged_by_id[incoming_pd["id"]] = incoming_pd
+      end
+    end
+
+    merged_by_id.values
+  end
+
+  # Determine the better status between two values
+  # Priority: Success > Pending > Declined > unknown
+  STATUS_PRIORITY = {
+    "Success" => 1,
+    "Pending" => 2,
+    "Declined" => 3,
+    "Failed" => 3,
+  }.freeze
+
+  def better_status(status1, status2)
+    priority1 = STATUS_PRIORITY[status1] || 99
+    priority2 = STATUS_PRIORITY[status2] || 99
+
+    # Return the status with lower priority number (higher priority)
+    priority1 <= priority2 ? status1 : status2
   end
 
   def normalize_payment_details
@@ -92,7 +181,8 @@ private
           "amount" => pd[:amount] || pd["amount"],
           "id" => pd[:id] || pd["id"],
           "status" => pd[:status] || pd["status"],
-          "currency" => pd[:currency] || pd["currency"]
+          "currency" => pd[:currency] || pd["currency"],
+          "order_reference" => pd[:order_reference] || pd["order_reference"],
         }.compact
       end
   end

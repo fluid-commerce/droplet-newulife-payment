@@ -24,15 +24,15 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched
       )
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -65,16 +65,16 @@ describe ByDesignPaymentRecordingJob do
         kyc_status: "APPROVE",
         payment_details: [
           { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
-          { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Declined" }
+          { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Declined" },
         ],
         status: :matched
       )
 
       # Only one API call should be made (for PAY1, not PAY2)
-      stub = stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub = stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -94,7 +94,7 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Declined" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Declined" },
         ],
         status: :matched
       )
@@ -113,12 +113,12 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched
       )
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "Result" => { "IsSuccessful" => false, "Message" => "Order not found" } }.to_json,
@@ -141,13 +141,13 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched,
         bydesign_recording_attempts: 4  # One below max
       )
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "Result" => { "IsSuccessful" => false, "Message" => "Persistent error" } }.to_json,
@@ -169,18 +169,18 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "LOAD_FUNDS_VIA_CASH", "amount" => "100.00", "id" => "PAY123", "status" => "Success" }
+          { "type" => "LOAD_FUNDS_VIA_CASH", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
         ],
         status: :matched
       )
 
       # Capture the request body to verify kyc_status is being used
       request_body = nil
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request| request_body = JSON.parse(request.body); true }
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -201,16 +201,17 @@ describe ByDesignPaymentRecordingJob do
         kyc_status: "APPROVE",
         payment_details: [
           { "type" => "uwallet", "amount" => "50.00", "id" => "PAY1", "status" => "Success" },
-          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "id" => "PAY2", "status" => "Success" }
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "id" => "PAY2", "status" => "Success" },
         ],
-        card_details: { "card_number_last4" => "4242", "expiry_date" => "12/2025", "payment_instrument_uuid" => "abc-uuid" },
+        card_details: { "card_number_last4" => "4242", "expiry_date" => "12/2025",
+"payment_instrument_uuid" => "abc-uuid", },
         status: :matched
       )
 
-      stub = stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub = stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -230,23 +231,24 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "uwallet", "amount" => "100.00", "id" => "VW1TMS2ZR6", "status" => "Success", "order_reference" => "TKW2BRL2OP" }
+          { "type" => "uwallet", "amount" => "100.00", "id" => "VW1TMS2ZR6", "status" => "Success",
+"order_reference" => "TKW2BRL2OP", },
         ],
         moola_webhook_payload: {
           "order_reference" => "TKW2BRL2OP",
           "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0",
           "autoship_reference" => "G2XYS6ZBBZ",
-          "completed_at" => "1767187441840"
+          "completed_at" => "1767187441840",
         },
         status: :matched
       )
 
       request_body = nil
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request| request_body = JSON.parse(request.body); true }
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -270,26 +272,27 @@ describe ByDesignPaymentRecordingJob do
         bydesign_order_id: "12345",
         kyc_status: "APPROVE",
         payment_details: [
-          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "878.00", "id" => "EZC1236EQI", "status" => "Success", "order_reference" => "TKW2BRL2OP" }
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "878.00", "id" => "EZC1236EQI", "status" => "Success",
+"order_reference" => "TKW2BRL2OP", },
         ],
         card_details: {
           "card_number_last4" => "7999",
           "expiry_date" => "8/2029",
-          "payment_instrument_uuid" => "50713565-6801-4064-b3a4-ea5a27bbab1c"
+          "payment_instrument_uuid" => "50713565-6801-4064-b3a4-ea5a27bbab1c",
         },
         moola_webhook_payload: {
           "order_reference" => "TKW2BRL2OP",
-          "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0"
+          "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0",
         },
         status: :matched
       )
 
       request_body = nil
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request| request_body = JSON.parse(request.body); true }
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 

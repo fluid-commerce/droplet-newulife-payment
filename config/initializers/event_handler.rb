@@ -12,6 +12,6 @@ Rails.application.config.to_prepare do
   EventHandler.register_handler("droplet.uninstalled", DropletUninstalledJob)
   EventHandler.register_handler("droplet.installed", DropletInstalledJob)
 
-  # Order webhook handlers
-  EventHandler.register_handler("order.external_id_updated", FluidOrderExternalIdUpdatedJob)
+  # Order webhook handler for external_id sync from ByDesign
+  EventHandler.register_handler("order.external_id_synced", FluidOrderExternalIdUpdatedJob)
 end

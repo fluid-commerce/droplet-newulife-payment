@@ -21,7 +21,7 @@ describe ByDesignPaymentService do
       "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0",
       "invoice_number" => "NULF-CT:test123",
       "autoship_reference" => "G2XYS6ZBBZ",
-      "completed_at" => "1767187441840"
+      "completed_at" => "1767187441840",
     }
   end
 
@@ -30,7 +30,7 @@ describe ByDesignPaymentService do
     {
       "card_number_last4" => "7999",
       "expiry_date" => "8/2029",
-      "payment_instrument_uuid" => "50713565-6801-4064-b3a4-ea5a27bbab1c"
+      "payment_instrument_uuid" => "50713565-6801-4064-b3a4-ea5a27bbab1c",
     }
   end
 
@@ -83,7 +83,7 @@ describe ByDesignPaymentService do
         "type" => "LOAD_FUNDS_VIA_CARD",
         "amount" => "100.00",
         "id" => "PAY123",
-        "status" => "Declined"
+        "status" => "Declined",
       }
 
       result = ByDesignPaymentService.record_payment(
@@ -103,10 +103,10 @@ describe ByDesignPaymentService do
         "amount" => "878.00",
         "id" => "EZC1236EQI",
         "status" => "Success",
-        "order_reference" => "TKW2BRL2OP"
+        "order_reference" => "TKW2BRL2OP",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request|
           body = JSON.parse(request.body)
           # Verify correct field mappings per API docs
@@ -123,7 +123,7 @@ describe ByDesignPaymentService do
         }
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -145,10 +145,10 @@ describe ByDesignPaymentService do
         "amount" => "2309.00",
         "id" => "VW1TMS2ZR6",
         "status" => "Success",
-        "order_reference" => "TKW2BRL2OP"
+        "order_reference" => "TKW2BRL2OP",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request|
           body = JSON.parse(request.body)
           # Wallet payments should NOT have card fields
@@ -159,7 +159,7 @@ describe ByDesignPaymentService do
         }
         .to_return(
           status: 200,
-          body: { "Result" => { "IsSuccessful" => true } }.to_json,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
           headers: { "Content-Type" => "application/json" }
         )
 
@@ -178,10 +178,10 @@ describe ByDesignPaymentService do
         "type" => "uwallet",
         "amount" => "50.00",
         "id" => "PAY456",
-        "status" => "Success"
+        "status" => "Success",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 500,
           body: "Internal Server Error"
@@ -202,10 +202,10 @@ describe ByDesignPaymentService do
         "type" => "uwallet",
         "amount" => "50.00",
         "id" => "PAY456",
-        "status" => "Success"
+        "status" => "Success",
       }
 
-      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .to_timeout
 
       result = ByDesignPaymentService.record_payment(
@@ -283,16 +283,16 @@ describe ByDesignPaymentService do
           "amount" => "100.00",
           "id" => "PAY123",
           "status" => "Success",
-          "order_reference" => "TKW2BRL2OP"
+          "order_reference" => "TKW2BRL2OP",
         }
         card_details = {
           "card_number_last4" => "4242",
           "expiry_date" => "12/2025",
-          "payment_instrument_uuid" => "abc-123-uuid"
+          "payment_instrument_uuid" => "abc-123-uuid",
         }
         p2m_data = { "order_reference" => "TKW2BRL2OP", "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, card_details, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, card_details, {}, "APPROVE")
 
         _(payload[:PaymentToken]).must_equal "abc-123-uuid"
         _(payload[:Last4CCNumber]).must_equal "4242"
@@ -304,11 +304,11 @@ describe ByDesignPaymentService do
           "type" => "uwallet",
           "amount" => "100.00",
           "id" => "PAY123",
-          "status" => "Success"
+          "status" => "Success",
         }
         p2m_data = { "order_reference" => "TKW2BRL2OP", "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload.key?(:PaymentToken)).must_equal false
         _(payload.key?(:Last4CCNumber)).must_equal false
@@ -321,16 +321,16 @@ describe ByDesignPaymentService do
           "amount" => "100.00",
           "id" => "VW1TMS2ZR6",
           "status" => "Success",
-          "order_reference" => "TKW2BRL2OP"
+          "order_reference" => "TKW2BRL2OP",
         }
         p2m_data = {
           "order_reference" => "TKW2BRL2OP",
           "client_uuid" => "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0",
           "invoice_number" => "NULF-CT:test123",
-          "autoship_reference" => "G2XYS6ZBBZ"
+          "autoship_reference" => "G2XYS6ZBBZ",
         }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         # Required fields
         _(payload[:OrderID]).must_equal 12345
@@ -357,11 +357,11 @@ describe ByDesignPaymentService do
           "type" => "uwallet",
           "amount" => "100.00",
           "id" => "PAY123",
-          "status" => "Pending"
+          "status" => "Pending",
         }
         p2m_data = { "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload[:Amount]).must_equal 0
         _(payload[:PromissoryAmount]).must_equal 100.0
@@ -372,11 +372,11 @@ describe ByDesignPaymentService do
           "type" => "uwallet",
           "amount" => "100.00",
           "id" => "PAY123",
-          "status" => "Success"
+          "status" => "Success",
         }
         p2m_data = { "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload[:Amount]).must_equal 100.0
         _(payload[:PromissoryAmount]).must_equal 0
@@ -387,11 +387,11 @@ describe ByDesignPaymentService do
           "type" => "LOAD_FUNDS_VIA_CASH",
           "amount" => "50.00",
           "id" => "PAY789",
-          "status" => "Success"
+          "status" => "Success",
         }
         p2m_data = { "invoice_number" => "NULF-CT:test" }
 
-        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, "APPROVE")
+        payload = service.send(:build_payment_payload, "12345", payment_detail, p2m_data, {}, {}, "APPROVE")
 
         _(payload[:Amount]).must_equal 0
         _(payload[:PromissoryAmount]).must_equal 50.0
@@ -484,8 +484,8 @@ describe ByDesignPaymentService do
 
     it "parses successful response" do
       response = OpenStruct.new(
-        code: 200,
-        body: { "Result" => { "IsSuccessful" => true } }.to_json
+        code: 201,
+        body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json
       )
 
       result = service.send(:parse_response, response)

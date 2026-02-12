@@ -8,7 +8,6 @@ class UPaymentsCheckoutApiClient
     @algorithm = "RS512"
 
     raise "UPAYMENTS_MC_API_CODE not found in environment variables" if @api_code.nil? || @api_code.empty?
-
   end
 
   def self.create_order(payload:)
@@ -21,7 +20,7 @@ class UPaymentsCheckoutApiClient
       body: payload.to_json,
       headers: headers,
     )
-    
+
     handle_response(response)
   end
 

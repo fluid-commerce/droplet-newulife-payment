@@ -97,7 +97,7 @@ describe MoolaPayment do
         invoice_number: "NULF-CT:test",
         kyc_status: "DECLINE",
         bydesign_order_id: "12345",
-        payment_details: [{ "type" => "uwallet", "amount" => "100" }]
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ]
       )
       _(payment.determine_status).must_equal :kyc_declined
     end
@@ -108,7 +108,7 @@ describe MoolaPayment do
         invoice_number: "NULF-CT:test",
         kyc_status: "REVIEW",
         bydesign_order_id: "12345",
-        payment_details: [{ "type" => "uwallet", "amount" => "100" }]
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ]
       )
       _(payment.determine_status).must_equal :kyc_pending
     end
@@ -119,7 +119,7 @@ describe MoolaPayment do
         invoice_number: "NULF-CT:test",
         kyc_status: "APPROVE",
         bydesign_order_id: "12345",
-        payment_details: [{ "type" => "uwallet", "amount" => "100" }]
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ]
       )
       _(payment.determine_status).must_equal :matched
     end
@@ -129,7 +129,7 @@ describe MoolaPayment do
         cart_token: "test",
         invoice_number: "NULF-CT:test",
         kyc_status: "APPROVE",
-        payment_details: [{ "type" => "uwallet", "amount" => "100" }]
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ]
       )
       _(payment.determine_status).must_equal :pending
     end
@@ -153,7 +153,7 @@ describe MoolaPayment do
         invoice_number: "NULF-CT:test",
         kyc_status: "APPROVE",
         bydesign_order_id: "12345",
-        payment_details: [{ "type" => "uwallet", "amount" => "100" }],
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
         status: :matched
       )
       _(payment.ready_to_record?).must_equal true
@@ -165,7 +165,7 @@ describe MoolaPayment do
         invoice_number: "NULF-CT:test",
         kyc_status: "APPROVE",
         bydesign_order_id: "12345",
-        payment_details: [{ "type" => "uwallet", "amount" => "100" }],
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
         status: :pending
       )
       _(payment.ready_to_record?).must_equal false
@@ -177,7 +177,7 @@ describe MoolaPayment do
         invoice_number: "NULF-CT:test",
         kyc_status: "REVIEW",
         bydesign_order_id: "12345",
-        payment_details: [{ "type" => "uwallet", "amount" => "100" }],
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
         status: :matched
       )
       _(payment.ready_to_record?).must_equal false
@@ -207,7 +207,7 @@ describe MoolaPayment do
         payment_details: [
           { "amount" => "50.00" },
           { "amount" => "30.00" },
-          { "amount" => "20.00" }
+          { "amount" => "20.00" },
         ]
       )
       _(payment.total_amount).must_equal 100.0
