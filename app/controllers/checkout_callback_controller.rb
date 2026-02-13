@@ -130,16 +130,6 @@ private
     end
   end
 
-  # def no_prefix_external_id
-  #   Rails.logger.info("CheckoutCallbackController no_prefix_external_id")
-  #   Rails.logger.info("no_prefix_external_id: #{callback_params.inspect}")
-  #   if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
-  #     callback_params[:customer][:external_id]
-  #   elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
-  #     callback_params[:user_company][:external_id]
-  #   end
-  # end
-
   def callback_params
     params.permit(
       :payment_account_id,
@@ -281,11 +271,10 @@ private
       )
       Rails.logger.info("[CheckoutCallback] Created MoolaPayment id=#{moola_payment.id} cart_token=#{cart_token} fluid_order_id=#{fluid_order_id}")
 
-      # Check if ready to record (e.g., if Moola webhook arrived before checkout completed)
-      if moola_payment.ready_to_record?
-        ByDesignPaymentRecordingJob.perform_later(moola_payment.id)
-        Rails.logger.info("[CheckoutCallback] Enqueued ByDesignPaymentRecordingJob for MoolaPayment id=#{moola_payment.id}")
-      end
+      # Use consistent locking mechanism for enqueue decision
+      # (e.g., if Moola webhook arrived before checkout completed)
+      enqueued = moola_payment.update_status_and_enqueue_if_ready!
+      Rails.logger.info("[CheckoutCallback] Checked for recording: enqueued=#{enqueued}")
     end
   end
 end

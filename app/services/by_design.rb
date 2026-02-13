@@ -77,16 +77,11 @@ private
   end
 
   # Map ISO country codes to ByDesign's expected country names
-  # Only mapping countries that require specific formatting
-  # Note: US works as "US" so leaving it unchanged
+  # Uses shared COUNTRY_CODE_MAP from ByDesignPaymentService for consistency
   def map_country_code_to_bydesign(country_code)
-    country_mapping = {
-      "CA" => "CANADA", # CA doesn't work, must use CANADA
-      "KR" => "KOREA (THE REPUBLIC OF)", # Must use full string per ByDesign requirements
-    }
+    return country_code if country_code.blank?
 
-    # Return mapped value if it exists, otherwise return original country code
-    country_mapping[country_code&.upcase] || country_code
+    ByDesignPaymentService::COUNTRY_CODE_MAP[country_code.upcase] || country_code
   end
 
   # Full list of ByDesign active countries (for future reference):

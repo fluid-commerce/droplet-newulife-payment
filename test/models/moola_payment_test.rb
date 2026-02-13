@@ -236,6 +236,216 @@ describe MoolaPayment do
     end
   end
 
+  describe "#update_status_and_enqueue_if_ready!" do
+    include ActiveJob::TestHelper
+
+    before do
+      MoolaPayment.delete_all
+    end
+
+    it "updates status to recording when ready to record" do
+      payment = MoolaPayment.create!(
+        cart_token: "status-update-test",
+        invoice_number: "NULF-CT:status-update-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending
+      )
+
+      payment.update_status_and_enqueue_if_ready!
+
+      # Status transitions to :recording when ready (prevents duplicate job enqueues)
+      _(payment.reload.status).must_equal "recording"
+    end
+
+    it "sets matched_at when transitioning to matched" do
+      payment = MoolaPayment.create!(
+        cart_token: "matched-at-test",
+        invoice_number: "NULF-CT:matched-at-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending,
+        matched_at: nil
+      )
+
+      payment.update_status_and_enqueue_if_ready!
+
+      _(payment.reload.matched_at).wont_be_nil
+    end
+
+    it "does not overwrite existing matched_at" do
+      original_time = 1.hour.ago
+      payment = MoolaPayment.create!(
+        cart_token: "existing-matched-at-test",
+        invoice_number: "NULF-CT:existing-matched-at-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending,
+        matched_at: original_time
+      )
+
+      payment.update_status_and_enqueue_if_ready!
+
+      _(payment.reload.matched_at.to_i).must_equal original_time.to_i
+    end
+
+    it "enqueues ByDesignPaymentRecordingJob when ready to record" do
+      payment = MoolaPayment.create!(
+        cart_token: "enqueue-test",
+        invoice_number: "NULF-CT:enqueue-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending
+      )
+
+      assert_enqueued_with(job: ByDesignPaymentRecordingJob, args: [ payment.id ]) do
+        payment.update_status_and_enqueue_if_ready!
+      end
+    end
+
+    it "returns true when job is enqueued" do
+      payment = MoolaPayment.create!(
+        cart_token: "return-true-test",
+        invoice_number: "NULF-CT:return-true-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending
+      )
+
+      result = payment.update_status_and_enqueue_if_ready!
+
+      _(result).must_equal true
+    end
+
+    it "returns false when job is not enqueued" do
+      payment = MoolaPayment.create!(
+        cart_token: "return-false-test",
+        invoice_number: "NULF-CT:return-false-test",
+        kyc_status: "REVIEW",  # KYC pending, so not ready to record
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending
+      )
+
+      result = payment.update_status_and_enqueue_if_ready!
+
+      _(result).must_equal false
+    end
+
+    it "does not enqueue job when not ready to record" do
+      payment = MoolaPayment.create!(
+        cart_token: "no-enqueue-test",
+        invoice_number: "NULF-CT:no-enqueue-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: nil,  # Missing ByDesign order ID
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending
+      )
+
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob) do
+        payment.update_status_and_enqueue_if_ready!
+      end
+    end
+  end
+
+  describe "concurrent webhook handling" do
+    include ActiveJob::TestHelper
+
+    before do
+      MoolaPayment.delete_all
+    end
+
+    it "only enqueues one job when concurrent webhooks arrive" do
+      # Create a payment that's ready to record
+      payment = MoolaPayment.create!(
+        cart_token: "concurrent-test",
+        invoice_number: "NULF-CT:concurrent-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :pending
+      )
+
+      # Simulate concurrent webhook processing with threads
+      threads = []
+      results = []
+      mutex = Mutex.new
+
+      5.times do
+        threads << Thread.new do
+          # Each thread tries to claim the payment for recording
+          result = payment.update_status_and_enqueue_if_ready!
+          mutex.synchronize { results << result }
+        end
+      end
+
+      threads.each(&:join)
+
+      # Only ONE thread should have successfully claimed (returned true)
+      _(results.count(true)).must_equal 1
+      _(results.count(false)).must_equal 4
+
+      # Payment should be in recording status
+      _(payment.reload.status).must_equal "recording"
+    end
+
+    it "prevents double-processing when payment already recording" do
+      payment = MoolaPayment.create!(
+        cart_token: "already-recording",
+        invoice_number: "NULF-CT:already-recording",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :recording  # Already being processed
+      )
+
+      # Attempting to claim should return false
+      result = payment.update_status_and_enqueue_if_ready!
+      _(result).must_equal false
+
+      # No job should be enqueued
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob)
+    end
+
+    it "prevents re-processing of recorded payments" do
+      payment = MoolaPayment.create!(
+        cart_token: "already-recorded",
+        invoice_number: "NULF-CT:already-recorded",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :recorded,
+        recorded_at: Time.current
+      )
+
+      result = payment.update_status_and_enqueue_if_ready!
+      _(result).must_equal false
+
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob)
+    end
+
+    it "prevents re-processing of failed payments" do
+      payment = MoolaPayment.create!(
+        cart_token: "already-failed",
+        invoice_number: "NULF-CT:already-failed",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :failed,
+        last_error: "Max attempts reached"
+      )
+
+      result = payment.update_status_and_enqueue_if_ready!
+      _(result).must_equal false
+
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob)
+    end
+  end
+
   describe "scopes" do
     before do
       MoolaPayment.delete_all
@@ -290,6 +500,90 @@ describe MoolaPayment do
       results = MoolaPayment.failed_recordings
       _(results.count).must_equal 1
       _(results.first).must_equal failed_payment
+    end
+
+    it "stuck_in_recording returns payments stuck in recording status" do
+      # Recent recording - should NOT be returned
+      MoolaPayment.create!(
+        cart_token: "recent-recording",
+        invoice_number: "NULF-CT:recent-recording",
+        status: :recording
+      )
+
+      # Stuck recording (updated > 30 mins ago) - should be returned
+      stuck_payment = MoolaPayment.create!(
+        cart_token: "stuck-recording",
+        invoice_number: "NULF-CT:stuck-recording",
+        status: :recording
+      )
+      # Manually set updated_at to simulate stuck payment
+      stuck_payment.update_columns(updated_at: 45.minutes.ago)
+
+      results = MoolaPayment.stuck_in_recording
+      _(results.count).must_equal 1
+      _(results.first).must_equal stuck_payment
+    end
+
+    it "stuck_in_recording accepts custom minutes threshold" do
+      stuck_payment = MoolaPayment.create!(
+        cart_token: "stuck-custom",
+        invoice_number: "NULF-CT:stuck-custom",
+        status: :recording
+      )
+      stuck_payment.update_columns(updated_at: 15.minutes.ago)
+
+      # Default 30 minutes - should not find it
+      _(MoolaPayment.stuck_in_recording.count).must_equal 0
+
+      # Custom 10 minutes - should find it
+      _(MoolaPayment.stuck_in_recording(10).count).must_equal 1
+    end
+  end
+
+  describe "stuck payment recovery" do
+    include ActiveJob::TestHelper
+
+    before do
+      MoolaPayment.delete_all
+    end
+
+    it "reset_stuck_to_matched! resets stuck payments and re-enqueues" do
+      stuck_payment = MoolaPayment.create!(
+        cart_token: "stuck-recovery",
+        invoice_number: "NULF-CT:stuck-recovery",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :recording
+      )
+      stuck_payment.update_columns(updated_at: 45.minutes.ago)
+
+      assert_enqueued_with(job: ByDesignPaymentRecordingJob, args: [ stuck_payment.id ]) do
+        count = MoolaPayment.reset_stuck_to_matched!
+        _(count).must_equal 1
+      end
+
+      stuck_payment.reload
+      _(stuck_payment.status).must_equal "recording"  # Re-claimed immediately
+    end
+
+    it "reset_stuck_to_matched! does not affect recent recordings" do
+      recent_payment = MoolaPayment.create!(
+        cart_token: "recent-recovery",
+        invoice_number: "NULF-CT:recent-recovery",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :recording
+      )
+
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob) do
+        count = MoolaPayment.reset_stuck_to_matched!
+        _(count).must_equal 0
+      end
+
+      recent_payment.reload
+      _(recent_payment.status).must_equal "recording"
     end
   end
 end

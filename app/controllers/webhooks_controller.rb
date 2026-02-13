@@ -35,6 +35,9 @@ private
   end
 
   def valid_auth_token?(company)
+    # Guard against nil webhook_verification_token (would raise ArgumentError in secure_compare)
+    return false if company.webhook_verification_token.blank?
+
     # Check header auth token first
     # Note: Rails transforms HTTP headers - AUTH_TOKEN becomes HTTP_AUTH_TOKEN
     auth_header = request.headers["HTTP_AUTH_TOKEN"] || request.headers["AUTH_TOKEN"] || request.headers["X-Auth-Token"]

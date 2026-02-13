@@ -136,7 +136,7 @@ describe MoolaP2mWebhookJob do
       _(existing.kyc_status).must_equal "APPROVE"
       _(existing.moola_transaction_id).must_equal "TXN999"
       _(existing.payment_details.length).must_equal 1
-      _(existing.status).must_equal "matched"  # Both webhooks received, KYC approved
+      _(existing.status).must_equal "recording"  # Ready to record, transitioned to recording
       _(existing.matched_at).wont_be_nil
     end
 

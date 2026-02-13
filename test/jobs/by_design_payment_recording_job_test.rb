@@ -312,4 +312,141 @@ describe ByDesignPaymentRecordingJob do
       assert true
     end
   end
+
+  describe "partial failure retry" do
+    it "marks individual payments as recorded on success" do
+      payment = MoolaPayment.create!(
+        cart_token: "partial-success",
+        invoice_number: "NULF-CT:partial-success",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
+          { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Success" },
+        ],
+        status: :recording
+      )
+
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      payment.reload
+      # Both payments should have recorded_at set
+      _(payment.payment_details[0]["recorded_at"]).wont_be_nil
+      _(payment.payment_details[1]["recorded_at"]).wont_be_nil
+      _(payment.status).must_equal "recorded"
+    end
+
+    it "only retries unrecorded payments on partial failure" do
+      # First payment already recorded from previous attempt
+      payment = MoolaPayment.create!(
+        cart_token: "partial-retry",
+        invoice_number: "NULF-CT:partial-retry",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success",
+"recorded_at" => Time.current.iso8601, },
+          { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Success" },
+        ],
+        status: :recording
+      )
+
+      # Only one API call should be made (for PAY2, not PAY1)
+      stub = stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      # Only one request for PAY2 (PAY1 was already recorded)
+      assert_requested(stub, times: 1)
+
+      payment.reload
+      _(payment.status).must_equal "recorded"
+      _(payment.payment_details[1]["recorded_at"]).wont_be_nil
+    end
+
+    it "schedules retry job on partial failure" do
+      payment = MoolaPayment.create!(
+        cart_token: "schedule-retry",
+        invoice_number: "NULF-CT:schedule-retry",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
+          { "type" => "uwallet", "amount" => "50.00", "id" => "PAY2", "status" => "Success" },
+        ],
+        status: :recording
+      )
+
+      call_count = 0
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return do |_request|
+          call_count += 1
+          if call_count == 1
+            # First payment succeeds
+            { status: 200, body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+headers: { "Content-Type" => "application/json" }, }
+          else
+            # Second payment fails
+            { status: 200, body: { "Result" => { "IsSuccessful" => false, "Message" => "Server error" } }.to_json,
+headers: { "Content-Type" => "application/json" }, }
+          end
+        end
+
+      # Should schedule a retry job
+      assert_enqueued_with(job: ByDesignPaymentRecordingJob) do
+        ByDesignPaymentRecordingJob.perform_now(payment.id)
+      end
+
+      payment.reload
+      # First payment should be marked as recorded
+      _(payment.payment_details[0]["recorded_at"]).wont_be_nil
+      # Second payment should NOT be marked as recorded
+      _(payment.payment_details[1]["recorded_at"]).must_be_nil
+      # Status should be back to matched for retry
+      _(payment.status).must_equal "matched"
+      _(payment.bydesign_recording_attempts).must_equal 1
+    end
+
+    it "does not schedule retry when max attempts reached" do
+      payment = MoolaPayment.create!(
+        cart_token: "max-retry",
+        invoice_number: "NULF-CT:max-retry",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY1", "status" => "Success" },
+        ],
+        status: :recording,
+        bydesign_recording_attempts: 4  # One below max
+      )
+
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "Result" => { "IsSuccessful" => false, "Message" => "Persistent error" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      # Should NOT schedule a retry job (max attempts reached)
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob) do
+        ByDesignPaymentRecordingJob.perform_now(payment.id)
+      end
+
+      payment.reload
+      _(payment.status).must_equal "failed"
+      _(payment.bydesign_recording_attempts).must_equal 5
+    end
+  end
 end
