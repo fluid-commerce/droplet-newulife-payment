@@ -138,7 +138,9 @@ class MoolaPayment < ApplicationRecord
   def update_status_and_enqueue_if_ready!
     # Skip if already in a terminal or processing state
     # These statuses should not be changed by webhook handlers
-    return false if recording? || recorded? || failed?
+    # IMPORTANT: Check DB status (not in-memory) to avoid race condition where
+    # another thread already set status to :recording after we loaded the record
+    return false if persisted? && self.class.where(id: id).pick(:status)&.to_sym.in?(%i[recording recorded failed])
 
     # Phase 1: Save all attribute changes
     self.status = determine_status
