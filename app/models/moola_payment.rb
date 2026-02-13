@@ -38,6 +38,27 @@ class MoolaPayment < ApplicationRecord
     "#{INVOICE_NUMBER_PREFIX}:#{cart_token}"
   end
 
+  # Reset stuck payments back to matched status and re-enqueue for processing
+  # This recovers payments where the job crashed or the worker died
+  # @param minutes [Integer] Consider stuck if in :recording for longer than this (default: 30)
+  # @return [Integer] Number of payments recovered
+  def self.reset_stuck_to_matched!(minutes: 30)
+    count = 0
+    stuck_in_recording(minutes).find_each do |payment|
+      payment.with_lock do
+        # Double-check it's still stuck (another process may have fixed it)
+        next unless payment.recording?
+        next unless payment.updated_at < minutes.minutes.ago
+
+        # Reset to matched and let update_status_and_enqueue_if_ready! handle re-enqueue
+        payment.update!(status: :matched)
+        payment.update_status_and_enqueue_if_ready!
+        count += 1
+      end
+    end
+    count
+  end
+
   # Extract cart_token from invoice_number format "NULF-CT:{cart_token}"
   def self.extract_cart_token(invoice_number)
     return nil unless invoice_number.present?
@@ -115,6 +136,10 @@ class MoolaPayment < ApplicationRecord
   #
   # @return [Boolean] true if recording job will be enqueued (after commit)
   def update_status_and_enqueue_if_ready!
+    # Skip if already in a terminal or processing state
+    # These statuses should not be changed by webhook handlers
+    return false if recording? || recorded? || failed?
+
     # Phase 1: Save all attribute changes
     self.status = determine_status
     self.matched_at = Time.current if matched? && matched_at.blank?
