@@ -159,12 +159,13 @@ private
   def handle_error(error)
     @moola_payment.increment_recording_attempt!
 
+    # Set status based on attempts - retry_on will handle re-scheduling for exceptions
+    # Note: We don't manually re-enqueue here because retry_on already handles that.
+    # Manual re-enqueue is only needed in handle_recording_failure (for API failures, not exceptions).
     if @moola_payment.max_attempts_reached?
       @moola_payment.update!(last_error: "#{error.class}: #{error.message}", status: :failed)
     else
       @moola_payment.update!(last_error: "#{error.class}: #{error.message}", status: :matched)
-      # Re-enqueue with delay for retry
-      ByDesignPaymentRecordingJob.set(wait: MoolaPayment::RETRY_DELAY_MINUTES.minutes).perform_later(@moola_payment.id)
     end
   end
 end
