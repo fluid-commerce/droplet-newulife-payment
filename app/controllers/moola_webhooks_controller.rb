@@ -65,6 +65,7 @@ private
     unless ActiveSupport::SecurityUtils.secure_compare(signature, expected_signature)
       Rails.logger.warn("[MoolaWebhook] Invalid webhook signature")
       head :unauthorized
+      return # rubocop:disable Style/RedundantReturn -- explicit return for before_action safety
     end
   end
 
