@@ -82,17 +82,43 @@ class MoolaPayment < ApplicationRecord
   # Update status based on current state, save, and enqueue recording job if ready.
   # This consolidates the repeated pattern across controllers and jobs.
   #
+  # Uses database locking to prevent race conditions when multiple webhooks
+  # (Moola P2M and Fluid order) arrive simultaneously for the same payment.
+  # Without locking, both could determine status as :matched and enqueue
+  # duplicate ByDesignPaymentRecordingJob instances.
+  #
+  # The method works in two phases:
+  # 1. Save all in-memory attribute changes (status, matched_at, etc.)
+  # 2. Use pessimistic locking to atomically claim for recording
+  #
+  # The job is enqueued OUTSIDE the transaction to avoid issues when callers
+  # (like WebhookEventJob subclasses) wrap this in their own transaction.
+  #
   # @return [Boolean] true if recording job was enqueued
   def update_status_and_enqueue_if_ready!
+    # Phase 1: Save all attribute changes
     self.status = determine_status
     self.matched_at = Time.current if matched? && matched_at.blank?
     save!
 
-    if ready_to_record?
-      ByDesignPaymentRecordingJob.perform_later(id)
-      true
-    else
-      false
+    # Phase 2: Atomically claim for recording with pessimistic lock
+    # Transition to :recording inside the lock prevents duplicate enqueues
+    should_enqueue = false
+    self.class.transaction do
+      locked_record = self.class.lock.find(id)
+
+      # Skip if already processing or in a terminal state
+      break if locked_record.recording? || locked_record.recorded? || locked_record.failed?
+
+      # Atomically transition to :recording and flag for enqueue
+      if locked_record.ready_to_record?
+        locked_record.update_columns(status: self.class.statuses[:recording])
+        should_enqueue = true
+      end
     end
+
+    # Enqueue outside the transaction to avoid nested transaction issues
+    ByDesignPaymentRecordingJob.perform_later(id) if should_enqueue
+    should_enqueue
   end
 end
