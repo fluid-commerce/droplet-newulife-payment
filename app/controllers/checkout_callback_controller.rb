@@ -54,7 +54,7 @@ class CheckoutCallbackController < ApplicationController
     order_payload = UPaymentsOrderPayloadGenerator.generate_order_payload(
       cart: cart_payload,
       external_id: consumer_external_id,
-      payment_account_id: callback_params[:payment_account_id]
+      payment_account_id: payment_account_uuid
     )
     Rails.logger.info("CheckoutCallbackController order_payload #{order_payload.inspect}")
 
@@ -197,6 +197,17 @@ private
     else
       payment_account_id_param
     end
+  end
+
+  # Resolve the payment account UUID from the callback payload.
+  # The Fluid payments API requires the UUID (e.g., "pa_..."), not the numeric ID.
+  # The callback sends numeric ID in payment_account_id, but includes the UUID
+  # in cart.available_payment_methods.
+  def payment_account_uuid
+    numeric_id = callback_params[:payment_account_id]
+    methods = params.dig(:cart, :available_payment_methods) || params.dig(:checkout_callback, :cart, :available_payment_methods) || []
+    match = methods.find { |pm| pm["id"].to_s == numeric_id.to_s || pm["uuid"].to_s == numeric_id.to_s }
+    match&.dig("uuid") || numeric_id
   end
 
   def cart_payload
