@@ -205,7 +205,8 @@ private
   # in cart.available_payment_methods.
   def payment_account_uuid
     numeric_id = callback_params[:payment_account_id]
-    methods = params.dig(:cart, :available_payment_methods) || params.dig(:checkout_callback, :cart, :available_payment_methods) || []
+    methods = params.dig(:cart,
+:available_payment_methods) || params.dig(:checkout_callback, :cart, :available_payment_methods) || []
     match = methods.find { |pm| pm["id"].to_s == numeric_id.to_s || pm["uuid"].to_s == numeric_id.to_s }
     match&.dig("uuid") || numeric_id
   end
