@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(bin/rails test:*)",
+      "WebFetch(domain:docs.fluid.app)",
+      "WebSearch",
+      "WebFetch(domain:developer.fluid.app)",
+      "Bash(curl:*)",
+      "WebFetch(domain:fluidsupport.zendesk.com)",
+      "Bash(RAILS_ENV=prod_read_only bin/rails console:*)",
+      "Bash(RAILS_ENV=prod_read_only bin/rails runner:*)",
+      "Bash(gcloud config get-value:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud logs read:*)",
+      "Bash(gcloud logging read:*)",
+      "Bash(heroku logs:*)",
+      "Bash(gcloud logging tail:*)",
+      "Bash(find:*)",
+      "Bash(gcloud projects list:*)"
+    ]
+  }
+}

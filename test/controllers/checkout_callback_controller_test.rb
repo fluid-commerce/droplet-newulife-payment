@@ -63,7 +63,7 @@ describe CheckoutCallbackController do
       it "returns the numeric ID when no matching payment method exists" do
         controller = build_controller_with_params(
           payment_account_id: "99999",
-          available_payment_methods: [{ id: "52246", uuid: "pa_abc123def456" }]
+          available_payment_methods: [ { id: "52246", uuid: "pa_abc123def456" } ]
         )
         _(controller.send(:payment_account_uuid)).must_equal "99999"
       end
@@ -113,7 +113,7 @@ describe CheckoutCallbackController do
       it "returns nil when payment_account_id is nil" do
         controller = build_controller_with_params(
           payment_account_id: nil,
-          available_payment_methods: [{ id: "52246", uuid: "pa_abc123def456" }]
+          available_payment_methods: [ { id: "52246", uuid: "pa_abc123def456" } ]
         )
         _(controller.send(:payment_account_uuid)).must_be_nil
       end
@@ -176,7 +176,7 @@ describe CheckoutCallbackController do
               address1: "123 Main St", address2: "", city: "LA", state: "CA",
               country_code: "US", email: "t@t.com", name: "Test", postal_code: "90210",
             },
-            items: [{ product_title: "P", quantity: 1, price: "100.00", product: { sku: "S1" } }],
+            items: [ { product_title: "P", quantity: 1, price: "100.00", product: { sku: "S1" } } ],
           },
           external_id: "C123",
           payment_account_id: "pa_25fownp1h5y6dh4jdiztqjdhupm5ei0u0"
@@ -197,7 +197,7 @@ describe CheckoutCallbackController do
               address1: "123 Main St", address2: "", city: "LA", state: "CA",
               country_code: "US", email: "t@t.com", name: "Test", postal_code: "90210",
             },
-            items: [{ product_title: "P", quantity: 1, price: "100.00", product: { sku: "S1" } }],
+            items: [ { product_title: "P", quantity: 1, price: "100.00", product: { sku: "S1" } } ],
           },
           external_id: "C123",
           payment_account_id: "52246"

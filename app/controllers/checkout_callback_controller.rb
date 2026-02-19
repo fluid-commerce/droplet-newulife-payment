@@ -162,7 +162,7 @@ private
           :price,
           { product: [ :sku ] },
         ],
-        available_payment_methods: [ :id, :uuid ],
+        available_payment_methods: %i[id uuid],
       ],
       attribution: %i[name email external_id share_guid]
     )
