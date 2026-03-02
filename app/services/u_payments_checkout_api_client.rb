@@ -16,7 +16,7 @@ class UPaymentsCheckoutApiClient
 
   def create_order(payload:)
     response = HTTParty.post(
-      "#{@base_url}/checkout/v1/order",
+      "#{@base_url}/checkout/v2/order",
       body: payload.to_json,
       headers: headers,
     )
