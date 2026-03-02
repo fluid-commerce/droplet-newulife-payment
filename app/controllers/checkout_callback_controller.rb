@@ -54,7 +54,7 @@ class CheckoutCallbackController < ApplicationController
     order_payload = UPaymentsOrderPayloadGenerator.generate_order_payload(
       cart: cart_payload,
       external_id: consumer_external_id,
-      payment_account_id: callback_params[:payment_account_id]
+      payment_account_id: payment_account_uuid
     )
     Rails.logger.info("CheckoutCallbackController order_payload #{order_payload.inspect}")
 
@@ -162,6 +162,7 @@ private
           :price,
           { product: [ :sku ] },
         ],
+        available_payment_methods: %i[id uuid],
       ],
       attribution: %i[name email external_id share_guid]
     )
@@ -197,6 +198,28 @@ private
     else
       payment_account_id_param
     end
+  end
+
+  # Resolve the payment account UUID from the callback payload.
+  # The Fluid payments API requires the UUID (e.g., "pa_..."), not the numeric ID.
+  # The callback sends numeric ID in payment_account_id, but includes the UUID
+  # in cart.available_payment_methods.
+  PAYMENT_ACCOUNT_FORMAT = /\A(pa_[a-z0-9]+|\d+)\z/
+
+  def payment_account_uuid
+    numeric_id = callback_params[:payment_account_id]
+    return nil if numeric_id.blank?
+
+    available_methods = callback_params.dig(:cart, :available_payment_methods) || []
+    match = available_methods.find { |pm| pm["id"].to_s == numeric_id.to_s || pm["uuid"].to_s == numeric_id.to_s }
+    resolved = match&.dig("uuid") || numeric_id
+
+    unless resolved.to_s.match?(PAYMENT_ACCOUNT_FORMAT)
+      Rails.logger.warn("[CheckoutCallback] payment_account_uuid: unexpected format '#{resolved}', falling back to numeric_id")
+      return numeric_id
+    end
+
+    resolved
   end
 
   def cart_payload

@@ -79,7 +79,7 @@ describe Setting do
 
     it "uses the method name as a key to the values at the instance level" do
       Tasks::Settings.create_defaults
-      _(Setting.fluid_api.base_url).must_equal "https://api.fluid.com"
+      _(Setting.fluid_api.base_url).must_equal "https://api.fluid.app"
     end
   end
 end

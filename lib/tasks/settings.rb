@@ -56,7 +56,7 @@ module Tasks
             },
           }
           setting.values = {
-            base_url: "https://api.fluid.com",
+            base_url: "https://api.fluid.app",
             api_key: "change-me",
           }
         end
