@@ -51,10 +51,12 @@ class CheckoutCallbackController < ApplicationController
       user = user_onboard_response
     end
 
+    login_uuid = user.dig("data", "uuid")
     order_payload = UPaymentsOrderPayloadGenerator.generate_order_payload(
       cart: cart_payload,
       external_id: consumer_external_id,
-      payment_account_id: callback_params[:payment_account_id]
+      payment_account_id: callback_params[:payment_account_id],
+      login_uuid: login_uuid
     )
     Rails.logger.info("CheckoutCallbackController order_payload #{order_payload.inspect}")
 
@@ -68,15 +70,11 @@ class CheckoutCallbackController < ApplicationController
       return render json: { redirect_url: nil, error_message: error_message }
     end
 
-    uuid = user.dig("data", "uuid")
-    base_redirect_url = redirect_url_response.dig("data", "redirectUrl")
-    final_redirect_url = "#{base_redirect_url}&uuid=#{uuid}"
+    redirect_url = redirect_url_response.dig("data", "redirectUrl")
 
-    Rails.logger.info("Final Step uuid #{uuid}")
-    Rails.logger.info("Final Step base_redirect_url #{base_redirect_url}")
-    Rails.logger.info("Final Step final_redirect_url #{final_redirect_url}")
+    Rails.logger.info("Final Step redirect_url #{redirect_url}")
 
-    render json: { redirect_url: final_redirect_url, error_message: nil }
+    render json: { redirect_url: redirect_url, error_message: nil }
   end
 
   def success

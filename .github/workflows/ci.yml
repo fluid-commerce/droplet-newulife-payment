@@ -150,6 +150,11 @@ jobs:
       - name: Build assets
         run: yarn build
 
+      - name: Build assets for test
+        env:
+          RAILS_ENV: test
+        run: bin/vite build
+
       - name: Run JavaScript tests
         run: yarn test
 
