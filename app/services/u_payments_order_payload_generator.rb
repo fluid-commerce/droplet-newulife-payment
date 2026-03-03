@@ -1,14 +1,15 @@
 class UPaymentsOrderPayloadGenerator
-  attr_reader :cart, :external_id, :payment_account_id
+  attr_reader :cart, :external_id, :payment_account_id, :login_uuid
 
-  def initialize(cart:, external_id:, payment_account_id:)
+  def initialize(cart:, external_id:, payment_account_id:, login_uuid:)
     @cart = ActiveSupport::HashWithIndifferentAccess.new(cart)
     @external_id = external_id
     @payment_account_id = payment_account_id
+    @login_uuid = login_uuid
   end
 
-  def self.generate_order_payload(cart:, external_id:, payment_account_id:)
-    new(cart:, external_id:, payment_account_id:).generate_order_payload
+  def self.generate_order_payload(cart:, external_id:, payment_account_id:, login_uuid:)
+    new(cart:, external_id:, payment_account_id:, login_uuid:).generate_order_payload
   end
 
   def generate_order_payload
@@ -21,6 +22,7 @@ class UPaymentsOrderPayloadGenerator
       cancelUrl: "#{ENV['CHECKOUT_HOST_URL']}/checkouts/#{cart[:cart_token]}",
       orderTime: Time.now.to_i.to_s,
       externalId: external_id,
+      loginUuid: login_uuid,
       language: cart[:language_iso],
       tipAllowed: false,
       autoshipRequired: cart[:recurring].present?,
