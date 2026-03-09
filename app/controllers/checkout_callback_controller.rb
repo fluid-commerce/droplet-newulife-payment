@@ -79,7 +79,7 @@ class CheckoutCallbackController < ApplicationController
 
     Rails.logger.info("Final Step redirect_url #{redirect_url}")
 
-    render json: { redirect_url: redirect_url, error_message: nil }
+    render json: { redirect_url: redirect_url }
   end
 
   def success
