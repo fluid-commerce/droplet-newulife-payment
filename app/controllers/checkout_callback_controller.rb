@@ -30,7 +30,12 @@ class CheckoutCallbackController < ApplicationController
       elsif by_design_successful && by_design_customer_id.present?
         # ByDesign succeeded, create new Fluid customer with ByDesign ID
         consumer_external_id = "C#{by_design_customer_id}"
-        fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
+        begin
+          fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
+        rescue FluidClient::APIError => e
+          Rails.logger.error("Fluid customer creation failed for external_id=#{consumer_external_id}: #{e.message}")
+          return render json: { redirect_url: nil, error_message: "Failed to create customer in Fluid" }
+        end
       else
         # ByDesign failed and no existing Fluid customer - cannot proceed
         error_message = by_design_consumer.dig("Result", "Message") || "Failed to create customer in ByDesign"
@@ -91,24 +96,30 @@ class CheckoutCallbackController < ApplicationController
           source: "droplet",
         },
       }
-      payment_response = fluid_client.post("/api/v202506/payments/#{payment_account_id}", body: payment_payload)
-      payment_uuid = payment_response["payment"]["uuid"]
+      begin
+        payment_response = fluid_client.post("/api/v202506/payments/#{payment_account_id}", body: payment_payload)
+        payment_uuid = payment_response["payment"]["uuid"]
 
-      Rails.logger.info("payment_response #{payment_response.inspect}")
-      Rails.logger.info("payment_response['payment']['uuid'] #{payment_response['payment']['uuid']}")
+        Rails.logger.info("payment_response #{payment_response.inspect}")
+        Rails.logger.info("payment_response['payment']['uuid'] #{payment_response['payment']['uuid']}")
 
-      # Call the fluid checkout api to create the order
-      checkout_response = fluid_client.post("/api/carts/#{cart_token}/checkout?payment_uuid=#{payment_uuid}")
+        # Call the fluid checkout api to create the order
+        checkout_response = fluid_client.post("/api/carts/#{cart_token}/checkout?payment_uuid=#{payment_uuid}")
 
-      Rails.logger.info("Final Step checkout_response #{checkout_response.inspect}")
-      Rails.logger.info("Final Step checkout_response['order']['order_confirmation_url'] #{checkout_response['order']['order_confirmation_url']}")
+        Rails.logger.info("Final Step checkout_response #{checkout_response.inspect}")
+        Rails.logger.info("Final Step checkout_response['order']['order_confirmation_url'] #{checkout_response['order']['order_confirmation_url']}")
 
-      # Always create/update MoolaPayment to link cart_token with fluid_order_id
-      # This ensures the record exists when the order.external_id_synced webhook arrives
-      ensure_moola_payment_link(cart_token, checkout_response)
+        # Always create/update MoolaPayment to link cart_token with fluid_order_id
+        # This ensures the record exists when the order.external_id_synced webhook arrives
+        ensure_moola_payment_link(cart_token, checkout_response)
 
-      order_confirmation_url = checkout_response["order"]["order_confirmation_url"]
-      redirect_to order_confirmation_url, allow_other_host: true
+        order_confirmation_url = checkout_response["order"]["order_confirmation_url"]
+        redirect_to order_confirmation_url, allow_other_host: true
+      rescue FluidClient::APIError => e
+        Rails.logger.error("Fluid API error during checkout success for cart_token=#{cart_token}: #{e.message}")
+        fluid_checkout_url = "#{ENV['CHECKOUT_HOST_URL']}/checkouts/#{cart_token}"
+        redirect_to fluid_checkout_url, allow_other_host: true
+      end
     else
       cart_token = success_params[:cart_token]
       fluid_checkout_url = "#{ENV['CHECKOUT_HOST_URL']}/checkouts/#{cart_token}"
