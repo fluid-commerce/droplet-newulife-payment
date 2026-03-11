@@ -32,7 +32,7 @@ class CheckoutCallbackController < ApplicationController
         consumer_external_id = "C#{by_design_customer_id}"
         begin
           fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
-        rescue FluidClient::APIError => e
+        rescue FluidClient::Error => e
           Rails.logger.error("Fluid customer creation failed for external_id=#{consumer_external_id}: #{e.message}")
           return render json: { redirect_url: nil, error_message: "Failed to create customer in Fluid" }
         end
@@ -115,7 +115,7 @@ class CheckoutCallbackController < ApplicationController
 
         order_confirmation_url = checkout_response["order"]["order_confirmation_url"]
         redirect_to order_confirmation_url, allow_other_host: true
-      rescue FluidClient::APIError => e
+      rescue FluidClient::Error => e
         Rails.logger.error("Fluid API error during checkout success for cart_token=#{cart_token}: #{e.message}")
         fluid_checkout_url = "#{ENV['CHECKOUT_HOST_URL']}/checkouts/#{cart_token}"
         redirect_to fluid_checkout_url, allow_other_host: true
