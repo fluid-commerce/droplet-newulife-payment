@@ -43,23 +43,34 @@ class CheckoutCallbackController < ApplicationController
         return render json: { redirect_url: nil, error_message: error_message }
       end
 
-      # Create consumer in UPayments
-      user_payload = UPaymentsConsumerPayloadGenerator.generate_consumer_payload(
-        cart: cart_payload,
-        external_id: consumer_external_id
-      )
-      user_onboard_response = UPaymentsUserApiClient.onboard_consumer(payload: user_payload)
-      if user_onboard_response.dig("status")&.zero?
-        error_message = user_onboard_response.dig("error", "message")
-        return render json: { redirect_url: nil, error_message: error_message }
+      # Create consumer in UPayments (skip if paying on behalf of another user)
+      unless order_on_behalf_of?
+        user_payload = UPaymentsConsumerPayloadGenerator.generate_consumer_payload(
+          cart: cart_payload,
+          external_id: consumer_external_id
+        )
+        user_onboard_response = UPaymentsUserApiClient.onboard_consumer(payload: user_payload)
+        if user_onboard_response.dig("status")&.zero?
+          error_message = user_onboard_response.dig("error", "message")
+          return render json: { redirect_url: nil, error_message: error_message }
+        end
+        user = user_onboard_response
       end
-      user = user_onboard_response
     end
 
-    login_uuid = user.dig("data", "uuid")
+    # For order on behalf of, use the payer's wallet UUID and external_id
+    if order_on_behalf_of?
+      login_uuid = payer_wallet_uuid
+      payer_external_id = cart_metadata.dig("external_id")
+      Rails.logger.info("CheckoutCallbackController order on behalf of: payer_external_id=#{payer_external_id}, payer_wallet_uuid=#{login_uuid}")
+    else
+      login_uuid = user.dig("data", "uuid")
+      payer_external_id = consumer_external_id
+    end
+
     order_payload = UPaymentsOrderPayloadGenerator.generate_order_payload(
       cart: cart_payload,
-      external_id: consumer_external_id,
+      external_id: payer_external_id,
       payment_account_id: callback_params[:payment_account_id],
       login_uuid: login_uuid
     )
@@ -171,6 +182,7 @@ private
           :price,
           { product: [ :sku ] },
         ],
+        metadata: %i[payer_wallet_uuid external_id],
       ],
       attribution: %i[name email external_id share_guid]
     )
@@ -210,6 +222,18 @@ private
 
   def cart_payload
     callback_params[:cart]
+  end
+
+  def cart_metadata
+    @cart_metadata ||= cart_payload[:metadata] || {}
+  end
+
+  def payer_wallet_uuid
+    cart_metadata.dig("payer_wallet_uuid") || cart_metadata.dig(:payer_wallet_uuid)
+  end
+
+  def order_on_behalf_of?
+    payer_wallet_uuid.present?
   end
 
   def fluid_client
