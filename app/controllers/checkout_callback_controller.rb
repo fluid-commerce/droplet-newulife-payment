@@ -58,10 +58,21 @@ class CheckoutCallbackController < ApplicationController
       end
     end
 
-    # For order on behalf of, use the payer's wallet UUID and external_id
+    # For order on behalf of, validate the payer and use their wallet UUID and external_id
     if order_on_behalf_of?
       login_uuid = payer_wallet_uuid
-      payer_external_id = cart_metadata.dig("external_id")
+      payer_external_id = payer_metadata_external_id
+
+      # Validate payer exists in UPayments
+      payer_check = UPaymentsUserApiClient.check_user_exists(
+        email: callback_params[:cart][:email],
+        external_id: payer_external_id
+      )
+      if payer_check.dig("status")&.zero?
+        Rails.logger.error("CheckoutCallbackController payer not found in UPayments: external_id=#{payer_external_id}, payer_wallet_uuid=#{login_uuid}")
+        return render json: { redirect_url: nil, error_message: "Payer account not found" }
+      end
+
       Rails.logger.info("CheckoutCallbackController order on behalf of: payer_external_id=#{payer_external_id}, payer_wallet_uuid=#{login_uuid}")
     else
       login_uuid = user.dig("data", "uuid")
@@ -232,8 +243,12 @@ private
     cart_metadata.dig("payer_wallet_uuid") || cart_metadata.dig(:payer_wallet_uuid)
   end
 
+  def payer_metadata_external_id
+    cart_metadata.dig("external_id") || cart_metadata.dig(:external_id)
+  end
+
   def order_on_behalf_of?
-    payer_wallet_uuid.present?
+    payer_wallet_uuid.present? && payer_metadata_external_id.present?
   end
 
   def fluid_client
