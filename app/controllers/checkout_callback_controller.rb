@@ -2,10 +2,14 @@ class CheckoutCallbackController < ApplicationController
   skip_before_action :verify_authenticity_token
 
   def get_redirect_url
-    consumer_external_id = external_id
+    # upayments_external_id: prefixed ID for UPayments (C/R prefix)
+    # fluid_external_id: raw ByDesign ID stored in Fluid (no prefix)
+    upayments_external_id = upayments_prefixed_external_id
+    fluid_external_id = raw_external_id
+
     user_check_response = UPaymentsUserApiClient.check_user_exists(
       email: callback_params[:cart][:email],
-      external_id: consumer_external_id
+      external_id: upayments_external_id
     )
 
     user = user_check_response
@@ -26,14 +30,16 @@ class CheckoutCallbackController < ApplicationController
 
       if fluid_customer["customers"].present?
         # Customer already exists in Fluid, use their external_id
-        consumer_external_id = fluid_customer["customers"].first["external_id"]
+        fluid_external_id = fluid_customer["customers"].first["external_id"]
+        upayments_external_id = upayments_prefix_for(fluid_external_id)
       elsif by_design_successful && by_design_customer_id.present?
-        # ByDesign succeeded, create new Fluid customer with ByDesign ID
-        consumer_external_id = "C#{by_design_customer_id}"
+        # ByDesign succeeded, create new Fluid customer with raw ByDesign ID
+        fluid_external_id = by_design_customer_id.to_s
+        upayments_external_id = "C#{fluid_external_id}"
         begin
-          fluid_client.post("/api/customers", body: customer_payload.merge(external_id: consumer_external_id))
+          fluid_client.post("/api/customers", body: customer_payload.merge(external_id: fluid_external_id))
         rescue FluidClient::Error => e
-          Rails.logger.error("Fluid customer creation failed for external_id=#{consumer_external_id}: #{e.message}")
+          Rails.logger.error("Fluid customer creation failed for external_id=#{fluid_external_id}: #{e.message}")
           return render json: { redirect_url: nil, error_message: "Failed to create customer in Fluid" }
         end
       else
@@ -47,7 +53,7 @@ class CheckoutCallbackController < ApplicationController
       unless order_on_behalf_of?
         user_payload = UPaymentsConsumerPayloadGenerator.generate_consumer_payload(
           cart: cart_payload,
-          external_id: consumer_external_id
+          external_id: upayments_external_id
         )
         user_onboard_response = UPaymentsUserApiClient.onboard_consumer(payload: user_payload)
         if user_onboard_response.dig("status")&.zero?
@@ -61,27 +67,27 @@ class CheckoutCallbackController < ApplicationController
     # For order on behalf of, validate the payer and use their wallet UUID and external_id
     if order_on_behalf_of?
       login_uuid = payer_wallet_uuid
-      payer_external_id = payer_metadata_external_id
+      payer_upayments_external_id = payer_metadata_external_id
 
       # Validate payer exists in UPayments
       payer_check = UPaymentsUserApiClient.check_user_exists(
         email: callback_params[:cart][:email],
-        external_id: payer_external_id
+        external_id: payer_upayments_external_id
       )
       if payer_check.dig("status")&.zero?
-        Rails.logger.error("CheckoutCallbackController payer not found in UPayments: external_id=#{payer_external_id}, payer_wallet_uuid=#{login_uuid}")
+        Rails.logger.error("CheckoutCallbackController payer not found in UPayments: external_id=#{payer_upayments_external_id}, payer_wallet_uuid=#{login_uuid}")
         return render json: { redirect_url: nil, error_message: "Payer account not found" }
       end
 
-      Rails.logger.info("CheckoutCallbackController order on behalf of: payer_external_id=#{payer_external_id}, payer_wallet_uuid=#{login_uuid}")
+      Rails.logger.info("CheckoutCallbackController order on behalf of: payer_external_id=#{payer_upayments_external_id}, payer_wallet_uuid=#{login_uuid}")
     else
       login_uuid = user.dig("data", "uuid")
-      payer_external_id = consumer_external_id
+      payer_upayments_external_id = upayments_external_id
     end
 
     order_payload = UPaymentsOrderPayloadGenerator.generate_order_payload(
       cart: cart_payload,
-      external_id: payer_external_id,
+      external_id: payer_upayments_external_id,
       payment_account_id: callback_params[:payment_account_id],
       login_uuid: login_uuid
     )
@@ -151,13 +157,33 @@ class CheckoutCallbackController < ApplicationController
 
 private
 
-  def external_id
-    Rails.logger.info("CheckoutCallbackController external_id")
-    Rails.logger.info("external_id: #{callback_params.inspect}")
+  # Raw external_id from Fluid (no prefix) — this is what gets stored in Fluid
+  def raw_external_id
     if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
-      "C#{callback_params[:customer][:external_id]}" # C prefix for customers
+      callback_params[:customer][:external_id].to_s
     elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
-      "R#{callback_params[:user_company][:external_id]}" # R prefix for representatives/distributors
+      callback_params[:user_company][:external_id].to_s
+    end
+  end
+
+  # Prefixed external_id for UPayments — C for customers, R for reps
+  def upayments_prefixed_external_id
+    if callback_params[:customer].present? && callback_params[:customer][:external_id].present?
+      "C#{callback_params[:customer][:external_id]}"
+    elsif callback_params[:user_company].present? && callback_params[:user_company][:external_id].present?
+      "R#{callback_params[:user_company][:external_id]}"
+    end
+  end
+
+  # Add UPayments prefix to a Fluid external_id based on whether it looks like a rep or customer
+  def upayments_prefix_for(fluid_external_id)
+    return fluid_external_id if fluid_external_id.blank?
+    return fluid_external_id if fluid_external_id.start_with?("C", "R")
+
+    if callback_params[:user_company].present?
+      "R#{fluid_external_id}"
+    else
+      "C#{fluid_external_id}"
     end
   end
 
