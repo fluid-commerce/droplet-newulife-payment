@@ -119,7 +119,8 @@ describe ByDesignPaymentService do
           body["ProcessorSpecificDetail1"] == "NULF-CT:test123" &&    # invoice_number
           body["ProcessorSpecificDetail2"] == "G2XYS6ZBBZ" &&         # autoship_reference
           body["ProcessorSpecificDetail3"] == "load_funds_via_card" && # payment type (lowercase)
-          body["ProcessorSpecificDetail4"] == "TKW2BRL2OP"            # order_reference
+          body["ProcessorSpecificDetail4"] == "TKW2BRL2OP" &&         # order_reference
+          body["ProcessorSpecificDetail23"] == "load_funds_via_card"   # Detail23: Freedom payment type label
         }
         .to_return(
           status: 200,
@@ -155,7 +156,8 @@ describe ByDesignPaymentService do
           !body.key?("PaymentToken") &&
           !body.key?("Last4CCNumber") &&
           !body.key?("ExpirationDateMMYY") &&
-          body["ProcessorSpecificDetail3"] == "uwallet"
+          body["ProcessorSpecificDetail3"] == "uwallet" &&
+          body["ProcessorSpecificDetail23"] == "uwallet"
         }
         .to_return(
           status: 200,
@@ -350,6 +352,7 @@ describe ByDesignPaymentService do
         _(payload[:ProcessorSpecificDetail2]).must_equal "G2XYS6ZBBZ"       # autoship_reference
         _(payload[:ProcessorSpecificDetail3]).must_equal "uwallet"          # payment type (lowercase)
         _(payload[:ProcessorSpecificDetail4]).must_equal "TKW2BRL2OP"       # order_reference
+        _(payload[:ProcessorSpecificDetail23]).must_equal "uwallet"         # Detail23: Freedom payment type label
       end
 
       it "uses promissory amount for Pending payments" do
@@ -397,6 +400,7 @@ describe ByDesignPaymentService do
         _(payload[:PromissoryAmount]).must_equal 50.0
         _(payload[:PaymentStatusTypeID]).must_equal 6  # Pending
         _(payload[:ProcessorSpecificDetail3]).must_equal "load_funds_via_cash"
+        _(payload[:ProcessorSpecificDetail23]).must_equal "load_funds_via_cash"
       end
     end
 
