@@ -304,7 +304,8 @@ describe ByDesignPaymentRecordingJob do
       _(request_body["Last4CCNumber"]).must_equal "7999"                                  # card_number_last4
       _(request_body["ExpirationDateMMYY"]).must_equal "0829"                            # expiry_date converted
       _(request_body["ProcessorSpecificDetail3"]).must_equal "load_funds_via_card"       # payment type (lowercase)
-      _(request_body["ProcessorSpecificDetail23"]).must_equal "load_funds_via_card"     # Detail23: Freedom payment type label
+      # Detail23: Freedom payment type label
+      _(request_body["ProcessorSpecificDetail23"]).must_equal "load_funds_via_card"
     end
 
     it "discards job when payment record not found" do
