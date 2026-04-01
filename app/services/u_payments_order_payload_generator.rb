@@ -17,6 +17,7 @@ class UPaymentsOrderPayloadGenerator
       invoiceNumber: MoolaPayment.format_invoice_number(cart[:cart_token]),
       totalAmount: format("%.2f", cart[:amount_total]),
       **conditional_sales_tax,
+      **conditional_shipping,
       currency: cart[:currency_code],
       redirectUrl: "#{ENV['DROPLET_HOST_URL']}/checkout/success/#{cart[:cart_token]}/payment_account/#{payment_account_id}", # rubocop:disable Layout/LineLength
       cancelUrl: "#{ENV['CHECKOUT_HOST_URL']}/checkouts/#{cart[:cart_token]}",
@@ -56,5 +57,12 @@ private
 
     formatted_tax = format("%.2f", cart[:tax_total])
     formatted_tax == "0.00" ? {} : { salesTax: formatted_tax }
+  end
+
+  def conditional_shipping
+    return {} unless cart[:shipping_total].present?
+
+    formatted_shipping = format("%.2f", cart[:shipping_total])
+    formatted_shipping == "0.00" ? {} : { exciseTax: formatted_shipping }
   end
 end

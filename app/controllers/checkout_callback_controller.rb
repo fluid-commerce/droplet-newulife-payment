@@ -197,6 +197,7 @@ private
         :cart_token,
         :amount_total,
         :tax_total,
+        :shipping_total,
         :currency_code,
         :language_iso,
         :recurring,
