@@ -56,13 +56,14 @@ private
   end
 
   def record_payments_to_bydesign
-    # Filter out any declined payments that might have slipped through
-    recordable_payments = @moola_payment.payment_details.reject do |pd|
+    # Use unrecorded_payment_details to avoid re-recording payments that succeeded
+    # on a previous attempt (prevents duplicates on partial failure retry)
+    recordable_payments = @moola_payment.unrecorded_payment_details.reject do |pd|
       ByDesignPaymentService.should_skip_payment?(pd)
     end
 
     if recordable_payments.empty?
-      Rails.logger.info("[ByDesignPaymentRecordingJob] No recordable payments (all declined)")
+      Rails.logger.info("[ByDesignPaymentRecordingJob] No recordable payments (all recorded or declined)")
       return [ { payment_id: nil, success: true, skipped: true } ]
     end
 
@@ -84,6 +85,11 @@ private
 
       Rails.logger.info("[ByDesignPaymentRecordingJob] Payment #{payment_detail['id']}: " \
                         "success=#{result[:success]}, skipped=#{result[:skipped]}, error=#{result[:error]}")
+
+      # Mark as recorded immediately on success to prevent duplicates on retry
+      if result[:success] && !result[:skipped]
+        @moola_payment.mark_payment_detail_recorded!(payment_detail["id"])
+      end
 
       {
         payment_id: payment_detail["id"],
@@ -139,19 +145,27 @@ private
     failed_payments = results.reject { |r| r[:success] }
     error_message = failed_payments.map { |r| "#{r[:payment_id]}: #{r[:error]}" }.join("; ")
 
-    @moola_payment.update!(
-      last_error: error_message,
-      status: @moola_payment.max_attempts_reached? ? :failed : :matched
-    )
-
-    Rails.logger.error("[ByDesignPaymentRecordingJob] Recording failed: #{error_message}")
+    if @moola_payment.max_attempts_reached?
+      @moola_payment.update!(last_error: error_message, status: :failed)
+      Rails.logger.error("[ByDesignPaymentRecordingJob] Recording failed permanently: #{error_message}")
+    else
+      @moola_payment.update!(last_error: error_message, status: :matched)
+      # Re-enqueue with delay to retry remaining unrecorded payments
+      ByDesignPaymentRecordingJob.set(wait: MoolaPayment::RETRY_DELAY_MINUTES.minutes).perform_later(@moola_payment.id)
+      Rails.logger.warn("[ByDesignPaymentRecordingJob] Recording failed, scheduled retry: #{error_message}")
+    end
   end
 
   def handle_error(error)
     @moola_payment.increment_recording_attempt!
-    @moola_payment.update!(
-      last_error: "#{error.class}: #{error.message}",
-      status: @moola_payment.max_attempts_reached? ? :failed : :matched
-    )
+
+    # Set status based on attempts - retry_on will handle re-scheduling for exceptions
+    # Note: We don't manually re-enqueue here because retry_on already handles that.
+    # Manual re-enqueue is only needed in handle_recording_failure (for API failures, not exceptions).
+    if @moola_payment.max_attempts_reached?
+      @moola_payment.update!(last_error: "#{error.class}: #{error.message}", status: :failed)
+    else
+      @moola_payment.update!(last_error: "#{error.class}: #{error.message}", status: :matched)
+    end
   end
 end
