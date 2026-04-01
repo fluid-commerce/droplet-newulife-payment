@@ -23,5 +23,7 @@ Rails.application.routes.draw do
   get "checkout/success/:cart_token/payment_account/:payment_account_id",
       to: "checkout_callback#success",
       as: :checkout_success
+  get "enrollment/downline_lookup", to: "enrollment#downline_lookup", as: :downline_lookup
+
   mount MissionControl::Jobs::Engine, at: "/jobs"
 end
