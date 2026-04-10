@@ -338,7 +338,7 @@ describe ByDesignPaymentService do
         _(payload[:ProcessorSpecificDetail2]).must_equal "G2XYS6ZBBZ"       # autoship_reference
         _(payload[:ProcessorSpecificDetail3]).must_equal "p2m"               # uwallet maps to p2m
         _(payload[:ProcessorSpecificDetail4]).must_equal "TKW2BRL2OP"       # order_reference
-        _(payload[:ProcessorSpecificDetail23]).must_equal "p2m"             # Detail23: Freedom maps p2m to UWallet label
+        _(payload[:ProcessorSpecificDetail23]).must_equal "p2m"            # Detail23: Freedom maps p2m to UWallet
       end
 
       it "uses promissory amount for Pending payments" do
