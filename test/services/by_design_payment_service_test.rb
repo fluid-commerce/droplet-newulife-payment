@@ -483,6 +483,73 @@ describe ByDesignPaymentService do
     end
   end
 
+  describe "#post_order" do
+    it "makes POST request to the correct endpoint and succeeds" do
+      stub = stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      result = ByDesignPaymentService.post_order(order_id: 12345)
+
+      assert_requested(stub, times: 1)
+      _(result[:success]).must_equal true
+      _(result[:error]).must_be_nil
+    end
+
+    it "handles API error response" do
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 400,
+          body: { "Message" => "Order not found" }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      result = ByDesignPaymentService.post_order(order_id: 12345)
+
+      _(result[:success]).must_equal false
+      _(result[:error]).must_match(/Order not found/)
+    end
+
+    it "handles timeout errors" do
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_timeout
+
+      result = ByDesignPaymentService.post_order(order_id: 12345)
+
+      _(result[:success]).must_equal false
+      _(result[:error]).must_match(/timeout/i)
+    end
+
+    it "handles server errors" do
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 500,
+          body: "Internal Server Error"
+        )
+
+      result = ByDesignPaymentService.post_order(order_id: 12345)
+
+      _(result[:success]).must_equal false
+    end
+
+    it "includes authorization headers" do
+      stub = stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .with(headers: { "Authorization" => /^Basic / })
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentService.post_order(order_id: 12345)
+
+      assert_requested(stub, times: 1)
+    end
+  end
+
   describe "response parsing" do
     let(:service) { ByDesignPaymentService.new }
 

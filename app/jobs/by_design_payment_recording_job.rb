@@ -27,6 +27,9 @@ class ByDesignPaymentRecordingJob < ApplicationJob
         recorded_at: Time.current
       )
       Rails.logger.info("[ByDesignPaymentRecordingJob] Successfully recorded all payments")
+
+      # Post the order to move from Entered to Posted status
+      post_order_if_eligible
     else
       handle_recording_failure(results)
     end
@@ -131,6 +134,28 @@ private
       "country_code" => address["country_code"],
       "postal_code" => address["postal_code"],
     }
+  end
+
+  def post_order_if_eligible
+    unless @moola_payment.should_post_order?
+      Rails.logger.info("[ByDesignPaymentRecordingJob] Order not eligible for posting: " \
+                        "kyc=#{@moola_payment.kyc_status}, has_cash=#{has_cash_payment?}")
+      return
+    end
+
+    result = ByDesignPaymentService.post_order(order_id: @moola_payment.bydesign_order_id)
+
+    if result[:success]
+      @moola_payment.update!(order_posted_at: Time.current)
+      Rails.logger.info("[ByDesignPaymentRecordingJob] Order #{@moola_payment.bydesign_order_id} posted successfully")
+    else
+      # Log but don't fail the job - payments were recorded successfully
+      Rails.logger.error("[ByDesignPaymentRecordingJob] Failed to post order #{@moola_payment.bydesign_order_id}: #{result[:error]}")
+    end
+  end
+
+  def has_cash_payment?
+    @moola_payment.payment_details.any? { |pd| pd["type"] == "LOAD_FUNDS_VIA_CASH" }
   end
 
   def handle_recording_failure(results)
