@@ -282,9 +282,9 @@ describe ByDesignPaymentRecordingJob do
       _(request_body["ProfileIDUsedForProcessor"]).must_equal "94d15bf3-0518-4a53-ab0b-e7b8c7d797e0"
       _(request_body["ProcessorSpecificDetail1"]).must_equal "NULF-CT:p2m-mapping-test"  # invoice_number
       _(request_body["ProcessorSpecificDetail2"]).must_equal "G2XYS6ZBBZ"   # autoship_reference
-      _(request_body["ProcessorSpecificDetail3"]).must_equal "uwallet"      # payment type (lowercase)
+      _(request_body["ProcessorSpecificDetail3"]).must_equal "p2m"           # uwallet maps to p2m
       _(request_body["ProcessorSpecificDetail4"]).must_equal "TKW2BRL2OP"   # order_reference
-      _(request_body["ProcessorSpecificDetail23"]).must_equal "uwallet"    # Detail23: Freedom payment type label
+      _(request_body["ProcessorSpecificDetail23"]).must_equal "p2m"        # Detail23: Freedom maps p2m to UWallet label
     end
 
     it "sends correct card fields for LOAD_FUNDS_VIA_CARD payments" do
