@@ -67,6 +67,21 @@ class MoolaPayment < ApplicationRecord
     kyc_status == "APPROVE"
   end
 
+  # Determine if the order should be posted after payment recording.
+  # Returns false if any payment is cash (stays Entered until cash received).
+  # Returns false if KYC is not APPROVE.
+  # Returns true only when all payments are Success and KYC is APPROVE.
+  def should_post_order?
+    return false unless kyc_status == "APPROVE"
+    return false if payment_details.blank?
+
+    # Cash payments keep order in Entered status
+    return false if payment_details.any? { |pd| pd["type"] == "LOAD_FUNDS_VIA_CASH" }
+
+    # All payments must be Success
+    payment_details.all? { |pd| pd["status"] == "Success" }
+  end
+
   def total_amount
     payment_details.sum { |pd| pd["amount"].to_f }
   end

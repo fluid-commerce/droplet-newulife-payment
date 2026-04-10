@@ -201,6 +201,90 @@ describe MoolaPayment do
     end
   end
 
+  describe "#should_post_order?" do
+    it "returns true when all payments are Success and KYC is APPROVE" do
+      payment = MoolaPayment.new(
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "50.00", "status" => "Success" },
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "status" => "Success" },
+        ]
+      )
+      _(payment.should_post_order?).must_equal true
+    end
+
+    it "returns false when KYC is REVIEW" do
+      payment = MoolaPayment.new(
+        kyc_status: "REVIEW",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "status" => "Success" },
+        ]
+      )
+      _(payment.should_post_order?).must_equal false
+    end
+
+    it "returns false when KYC is DECLINE" do
+      payment = MoolaPayment.new(
+        kyc_status: "DECLINE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "status" => "Success" },
+        ]
+      )
+      _(payment.should_post_order?).must_equal false
+    end
+
+    it "returns false when any payment is cash" do
+      payment = MoolaPayment.new(
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "50.00", "status" => "Success" },
+          { "type" => "LOAD_FUNDS_VIA_CASH", "amount" => "50.00", "status" => "Success" },
+        ]
+      )
+      _(payment.should_post_order?).must_equal false
+    end
+
+    it "returns false when any payment is Pending" do
+      payment = MoolaPayment.new(
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "50.00", "status" => "Success" },
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "status" => "Pending" },
+        ]
+      )
+      _(payment.should_post_order?).must_equal false
+    end
+
+    it "returns false when any payment is Declined" do
+      payment = MoolaPayment.new(
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "50.00", "status" => "Success" },
+          { "type" => "LOAD_FUNDS_VIA_CARD", "amount" => "50.00", "status" => "Declined" },
+        ]
+      )
+      _(payment.should_post_order?).must_equal false
+    end
+
+    it "returns false when payment_details is blank" do
+      payment = MoolaPayment.new(
+        kyc_status: "APPROVE",
+        payment_details: []
+      )
+      _(payment.should_post_order?).must_equal false
+    end
+
+    it "returns false when KYC is nil" do
+      payment = MoolaPayment.new(
+        kyc_status: nil,
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "status" => "Success" },
+        ]
+      )
+      _(payment.should_post_order?).must_equal false
+    end
+  end
+
   describe "#total_amount" do
     it "sums all payment amounts" do
       payment = MoolaPayment.new(

@@ -105,6 +105,12 @@ class ByDesignPaymentService
       )
     end
 
+    # Post an order to move it from Entered to Posted status
+    # This should be called after all payments are successfully recorded
+    def post_order(order_id:)
+      new.post_order(order_id: order_id)
+    end
+
     # Check if a payment should be skipped (not recorded)
     def should_skip_payment?(payment_detail)
       payment_detail["status"] == "Declined"
@@ -126,6 +132,25 @@ class ByDesignPaymentService
     def supported_payment_type?(payment_type)
       SUPPORTED_PAYMENT_TYPES.include?(payment_type)
     end
+  end
+
+  def post_order(order_id:)
+    Rails.logger.info("[ByDesignPaymentService] Posting order: OrderID=#{order_id}")
+
+    response = self.class.post(
+      "/api/order/Order/#{order_id}/Post",
+      headers: headers,
+      timeout: DEFAULT_TIMEOUT
+    )
+
+    Rails.logger.info("[ByDesignPaymentService] Post order response: code=#{response.code}")
+    parse_response(response)
+  rescue Net::OpenTimeout, Net::ReadTimeout => e
+    Rails.logger.error("[ByDesignPaymentService] Post order timeout: #{e.class} - #{e.message}")
+    { success: false, error: "Request timeout: #{e.message}", response: nil }
+  rescue StandardError => e
+    Rails.logger.error("[ByDesignPaymentService] Post order error: #{e.class} - #{e.message}")
+    { success: false, error: e.message, response: nil }
   end
 
   def record_payment(order_id:, payment_detail:, p2m_data: {}, card_details: {}, billing_address: {}, kyc_status: nil)

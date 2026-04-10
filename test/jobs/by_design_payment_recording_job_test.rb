@@ -36,6 +36,13 @@ describe ByDesignPaymentRecordingJob do
           headers: { "Content-Type" => "application/json" }
         )
 
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
       ByDesignPaymentRecordingJob.perform_now(payment.id)
 
       payment.reload
@@ -215,6 +222,13 @@ describe ByDesignPaymentRecordingJob do
           headers: { "Content-Type" => "application/json" }
         )
 
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
       ByDesignPaymentRecordingJob.perform_now(payment.id)
 
       # Two API calls should be made
@@ -246,6 +260,13 @@ describe ByDesignPaymentRecordingJob do
       request_body = nil
       stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
         .with { |request| request_body = JSON.parse(request.body); true }
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -297,6 +318,13 @@ describe ByDesignPaymentRecordingJob do
           headers: { "Content-Type" => "application/json" }
         )
 
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
       ByDesignPaymentRecordingJob.perform_now(payment.id)
 
       # Verify card-specific fields per API documentation
@@ -306,6 +334,151 @@ describe ByDesignPaymentRecordingJob do
       _(request_body["ProcessorSpecificDetail3"]).must_equal "load_funds_via_card"       # payment type (lowercase)
       # Detail23: Freedom payment type label
       _(request_body["ProcessorSpecificDetail23"]).must_equal "load_funds_via_card"
+    end
+
+    it "posts order after successful recording when eligible" do
+      payment = MoolaPayment.create!(
+        cart_token: "post-order-test",
+        invoice_number: "NULF-CT:post-order-test",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
+        ],
+        status: :matched
+      )
+
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      post_stub = stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      assert_requested(post_stub, times: 1)
+      payment.reload
+      _(payment.status).must_equal "recorded"
+      _(payment.order_posted_at).wont_be_nil
+    end
+
+    it "does not post order when payment has cash type" do
+      payment = MoolaPayment.create!(
+        cart_token: "cash-no-post",
+        invoice_number: "NULF-CT:cash-no-post",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "LOAD_FUNDS_VIA_CASH", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
+        ],
+        status: :matched
+      )
+
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      payment.reload
+      _(payment.status).must_equal "recorded"
+      _(payment.order_posted_at).must_be_nil
+    end
+
+    it "does not post order when payment has Pending status" do
+      payment = MoolaPayment.create!(
+        cart_token: "pending-no-post",
+        invoice_number: "NULF-CT:pending-no-post",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Pending" },
+        ],
+        status: :matched
+      )
+
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      payment.reload
+      _(payment.status).must_equal "recorded"
+      _(payment.order_posted_at).must_be_nil
+    end
+
+    it "records payment but does not fail when post order API fails" do
+      payment = MoolaPayment.create!(
+        cart_token: "post-fail-test",
+        invoice_number: "NULF-CT:post-fail-test",
+        bydesign_order_id: "12345",
+        kyc_status: "APPROVE",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
+        ],
+        status: :matched
+      )
+
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      stub_request(:post, /\/api\/order\/Order\/12345\/Post/)
+        .to_return(
+          status: 500,
+          body: "Internal Server Error"
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      payment.reload
+      # Payment still recorded even though post failed
+      _(payment.status).must_equal "recorded"
+      _(payment.order_posted_at).must_be_nil
+    end
+
+    it "does not post order when KYC is REVIEW" do
+      payment = MoolaPayment.create!(
+        cart_token: "kyc-review-no-post",
+        invoice_number: "NULF-CT:kyc-review-no-post",
+        bydesign_order_id: "12345",
+        kyc_status: "REVIEW",
+        payment_details: [
+          { "type" => "uwallet", "amount" => "100.00", "id" => "PAY123", "status" => "Success" },
+        ],
+        status: :matched
+      )
+
+      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+        .to_return(
+          status: 200,
+          body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      ByDesignPaymentRecordingJob.perform_now(payment.id)
+
+      payment.reload
+      _(payment.status).must_equal "recorded"
+      _(payment.order_posted_at).must_be_nil
     end
 
     it "discards job when payment record not found" do
