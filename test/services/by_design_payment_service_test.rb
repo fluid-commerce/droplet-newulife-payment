@@ -61,20 +61,6 @@ describe ByDesignPaymentService do
       _(ByDesignPaymentService.cash_payment?("LOAD_FUNDS_VIA_CASH")).must_equal true
       _(ByDesignPaymentService.cash_payment?("uwallet")).must_equal false
     end
-
-    it "identifies wallet payments" do
-      _(ByDesignPaymentService.wallet_payment?("uwallet")).must_equal true
-      _(ByDesignPaymentService.wallet_payment?("UWALLET_TRANSFER")).must_equal true
-      _(ByDesignPaymentService.wallet_payment?("LOAD_FUNDS_VIA_CARD")).must_equal false
-    end
-
-    it "identifies supported payment types" do
-      _(ByDesignPaymentService.supported_payment_type?("LOAD_FUNDS_VIA_CARD")).must_equal true
-      _(ByDesignPaymentService.supported_payment_type?("LOAD_FUNDS_VIA_CASH")).must_equal true
-      _(ByDesignPaymentService.supported_payment_type?("uwallet")).must_equal true
-      _(ByDesignPaymentService.supported_payment_type?("UWALLET_TRANSFER")).must_equal true
-      _(ByDesignPaymentService.supported_payment_type?("UNKNOWN_TYPE")).must_equal false
-    end
   end
 
   describe "#record_payment" do
@@ -156,8 +142,8 @@ describe ByDesignPaymentService do
           !body.key?("PaymentToken") &&
           !body.key?("Last4CCNumber") &&
           !body.key?("ExpirationDateMMYY") &&
-          body["ProcessorSpecificDetail3"] == "uwallet" &&
-          body["ProcessorSpecificDetail23"] == "uwallet"
+          body["ProcessorSpecificDetail3"] == "p2m" &&
+          body["ProcessorSpecificDetail23"] == "p2m"
         }
         .to_return(
           status: 200,
@@ -350,9 +336,9 @@ describe ByDesignPaymentService do
         # Processor-specific fields
         _(payload[:ProcessorSpecificDetail1]).must_equal "NULF-CT:test123"  # invoice_number
         _(payload[:ProcessorSpecificDetail2]).must_equal "G2XYS6ZBBZ"       # autoship_reference
-        _(payload[:ProcessorSpecificDetail3]).must_equal "uwallet"          # payment type (lowercase)
+        _(payload[:ProcessorSpecificDetail3]).must_equal "p2m"               # uwallet maps to p2m
         _(payload[:ProcessorSpecificDetail4]).must_equal "TKW2BRL2OP"       # order_reference
-        _(payload[:ProcessorSpecificDetail23]).must_equal "uwallet"         # Detail23: Freedom payment type label
+        _(payload[:ProcessorSpecificDetail23]).must_equal "p2m"             # Detail23: Freedom maps p2m to UWallet label
       end
 
       it "uses promissory amount for Pending payments" do
@@ -459,7 +445,18 @@ describe ByDesignPaymentService do
       it "converts payment type to lowercase" do
         _(service.send(:normalize_payment_type, "LOAD_FUNDS_VIA_CARD")).must_equal "load_funds_via_card"
         _(service.send(:normalize_payment_type, "UWALLET_TRANSFER")).must_equal "uwallet_transfer"
-        _(service.send(:normalize_payment_type, "uwallet")).must_equal "uwallet"
+      end
+
+      it "maps uwallet to p2m for Freedom SQL compatibility" do
+        _(service.send(:normalize_payment_type, "uwallet")).must_equal "p2m"
+        _(service.send(:normalize_payment_type, "UWALLET")).must_equal "p2m"
+      end
+
+      it "passes through other types as-is (lowercased)" do
+        _(service.send(:normalize_payment_type, "credit_points")).must_equal "credit_points"
+        _(service.send(:normalize_payment_type, "QUALIFYING_CREDIT")).must_equal "qualifying_credit"
+        _(service.send(:normalize_payment_type, "pay_by_installment")).must_equal "pay_by_installment"
+        _(service.send(:normalize_payment_type, "DISCOUNT_TRANSACTION")).must_equal "discount_transaction"
       end
 
       it "returns nil for blank input" do

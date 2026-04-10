@@ -6,19 +6,17 @@ class ByDesignPaymentService
   # HTTP timeout in seconds
   DEFAULT_TIMEOUT = 30
 
-  # Supported payment types - explicitly enumerated for clarity
+  # Known payment types for type-specific behavior (card fields, cash pending)
   CARD_PAYMENT_TYPE = "LOAD_FUNDS_VIA_CARD"
   CASH_PAYMENT_TYPE = "LOAD_FUNDS_VIA_CASH"
-  WALLET_PAYMENT_TYPES = %w[UWALLET_TRANSFER uwallet].freeze
-  SUPPORTED_PAYMENT_TYPES = ([ CARD_PAYMENT_TYPE, CASH_PAYMENT_TYPE ] + WALLET_PAYMENT_TYPES).freeze
 
-  # Payment type mapping from Moola to ByDesign
-  # All Moola payments use CreditCardAccountId 30
-  PAYMENT_TYPE_MAP = {
-    CARD_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Card Payment" },
-    "UWALLET_TRANSFER" => { credit_card_account_id: 30, description: "Moola Wallet Transfer" },
-    "uwallet" => { credit_card_account_id: 30, description: "Moola Wallet" },
-    CASH_PAYMENT_TYPE => { credit_card_account_id: 30, description: "Moola Cash Payment" },
+  # All Moola/UPayments types use the same CreditCardAccountId
+  DEFAULT_CREDIT_CARD_ACCOUNT_ID = 30
+
+  # Detail23 type mapping - maps webhook types to Freedom display labels.
+  # Most types pass through as-is (lowercased). Special cases documented here.
+  DETAIL23_TYPE_MAP = {
+    "uwallet" => "p2m",  # Freedom SQL maps "p2m" to "UWallet" label
   }.freeze
 
   # Payment status mapping based on Moola guide:
@@ -110,21 +108,13 @@ class ByDesignPaymentService
       payment_detail["status"] == "Declined"
     end
 
-    # Payment type check methods - explicitly identify each payment type
+    # Payment type check methods - identify types needing special handling
     def card_payment?(payment_type)
       payment_type == CARD_PAYMENT_TYPE
     end
 
     def cash_payment?(payment_type)
       payment_type == CASH_PAYMENT_TYPE
-    end
-
-    def wallet_payment?(payment_type)
-      WALLET_PAYMENT_TYPES.include?(payment_type)
-    end
-
-    def supported_payment_type?(payment_type)
-      SUPPORTED_PAYMENT_TYPES.include?(payment_type)
     end
   end
 
@@ -188,26 +178,17 @@ private
     # Add type-specific fields based on the payment type
     if self.class.card_payment?(payment_type)
       add_card_payment_fields(payload, payment_detail, card_details)
-    elsif self.class.cash_payment?(payment_type)
-      # Cash payments use base payload only - no additional fields
-      Rails.logger.debug("[ByDesignPaymentService] Processing cash payment: #{payment_detail['id']}")
-    elsif self.class.wallet_payment?(payment_type)
-      # Wallet payments use base payload only - no additional fields
-      Rails.logger.debug("[ByDesignPaymentService] Processing wallet payment: #{payment_detail['id']}")
+    else
+      # Non-card payments (cash, wallet, credit_points, etc.) use base payload only
+      Rails.logger.debug("[ByDesignPaymentService] Processing #{payment_type} payment: #{payment_detail['id']}")
     end
 
     payload
   end
 
-  def get_payment_type_config(payment_type)
-    unless self.class.supported_payment_type?(payment_type)
-      Rails.logger.warn("[ByDesignPaymentService] Unknown payment type '#{payment_type}', defaulting to wallet configuration")
-    end
-
-    # Explicit lookup - only use default for truly unknown types
-    PAYMENT_TYPE_MAP.fetch(payment_type) do
-      PAYMENT_TYPE_MAP["UWALLET_TRANSFER"]
-    end
+  def get_payment_type_config(_payment_type)
+    # All UPayments types use the same CreditCardAccountId
+    { credit_card_account_id: DEFAULT_CREDIT_CARD_ACCOUNT_ID }
   end
 
   def build_base_payload(order_id, payment_detail, p2m_data, type_config, kyc_status)
@@ -253,12 +234,13 @@ private
     payment_detail["order_reference"].presence || p2m_data["order_reference"]
   end
 
-  # Normalize payment type to lowercase with underscores (per API docs examples)
+  # Normalize payment type to lowercase, applying Detail23 type mapping where needed.
+  # Most types pass through as-is (lowercased). Special cases are in DETAIL23_TYPE_MAP.
   def normalize_payment_type(payment_type)
     return nil unless payment_type.present?
 
-    # API docs show lowercase: "load_funds_via_card", "uwallet_transfer", "uwallet"
-    payment_type.downcase
+    lowered = payment_type.downcase
+    DETAIL23_TYPE_MAP[lowered] || lowered
   end
 
   # Get payment date from webhook completed_at or use current time
