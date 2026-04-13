@@ -92,7 +92,7 @@ describe ByDesignPaymentService do
         "order_reference" => "TKW2BRL2OP",
       }
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .with { |request|
           body = JSON.parse(request.body)
           # Verify correct field mappings per API docs
@@ -135,7 +135,7 @@ describe ByDesignPaymentService do
         "order_reference" => "TKW2BRL2OP",
       }
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .with { |request|
           body = JSON.parse(request.body)
           # Wallet payments should NOT have card fields
@@ -169,7 +169,7 @@ describe ByDesignPaymentService do
         "status" => "Success",
       }
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 500,
           body: "Internal Server Error"
@@ -193,7 +193,7 @@ describe ByDesignPaymentService do
         "status" => "Success",
       }
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_timeout
 
       result = ByDesignPaymentService.record_payment(
