@@ -157,7 +157,7 @@ class ByDesignPaymentService
     Rails.logger.debug("[ByDesignPaymentService] Payload: #{payload.to_json}")
 
     response = self.class.post(
-      "/api/order/Payment/CreditCard/Save",
+      "/api/Personal/Order/Payment/CreditCard/Save",
       headers: headers,
       body: payload.to_json,
       timeout: DEFAULT_TIMEOUT
@@ -432,7 +432,7 @@ private
   def parse_response(response)
     body = parse_json_safely(response.body)
 
-    # The /api/order/Payment/CreditCard/Save endpoint returns:
+    # The /api/Personal/Order/Payment/CreditCard/Save endpoint returns:
     # - 201 with { "Result": {...}, "IsSuccessful": true } on success
     # - 400/500 with { "IsSuccessful": false, "Message": "..." } on error
     if response.code == 200 || response.code == 201

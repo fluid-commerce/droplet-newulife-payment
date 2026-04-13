@@ -29,7 +29,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -78,7 +78,7 @@ describe ByDesignPaymentRecordingJob do
       )
 
       # Only one API call should be made (for PAY1, not PAY2)
-      stub = stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub = stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -125,7 +125,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "Result" => { "IsSuccessful" => false, "Message" => "Order not found" } }.to_json,
@@ -154,7 +154,7 @@ describe ByDesignPaymentRecordingJob do
         bydesign_recording_attempts: 4  # One below max
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "Result" => { "IsSuccessful" => false, "Message" => "Persistent error" } }.to_json,
@@ -183,7 +183,7 @@ describe ByDesignPaymentRecordingJob do
 
       # Capture the request body to verify kyc_status is being used
       request_body = nil
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .with { |request| request_body = JSON.parse(request.body); true }
         .to_return(
           status: 200,
@@ -215,7 +215,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub = stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub = stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -258,7 +258,7 @@ describe ByDesignPaymentRecordingJob do
       )
 
       request_body = nil
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .with { |request| request_body = JSON.parse(request.body); true }
         .to_return(
           status: 200,
@@ -310,7 +310,7 @@ describe ByDesignPaymentRecordingJob do
       )
 
       request_body = nil
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .with { |request| request_body = JSON.parse(request.body); true }
         .to_return(
           status: 200,
@@ -348,7 +348,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -382,7 +382,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -408,7 +408,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -434,7 +434,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
@@ -467,7 +467,7 @@ describe ByDesignPaymentRecordingJob do
         status: :matched
       )
 
-      stub_request(:post, /\/api\/order\/Payment\/CreditCard\/Save/)
+      stub_request(:post, /\/api\/Personal\/Order\/Payment\/CreditCard\/Save/)
         .to_return(
           status: 200,
           body: { "IsSuccessful" => true, "Result" => { "ID" => "12345" } }.to_json,
