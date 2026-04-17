@@ -13,6 +13,21 @@ class ByDesign
     new(cart:, sponsor_rep_id:).create_consumer
   end
 
+  def self.downline_lookup(rep_did:, search: nil)
+    response = get(
+      "/api/Personal/Enrollment/DownlineLookup",
+      query: { repDID: rep_did, searchString: search },
+      headers: api_headers
+    )
+
+    if response.code == 200
+      JSON.parse(response.body)
+    else
+      Rails.logger.error("ByDesign downline lookup error (#{response.code}): #{response.body}")
+      { "IsSuccessful" => false, "Message" => "ByDesign API error (#{response.code})", "Result" => [] }
+    end
+  end
+
   def create_consumer
     payload = generate_consumer_payload
     Rails.logger.info("ByDesign create_consumer payload: #{payload.to_json}")
@@ -37,13 +52,14 @@ class ByDesign
     end
   end
 
-private
-  def headers
-    { Authorization: authorization, "Content-Type": "application/json", Accept: "application/json" }
+  def self.api_headers
+    auth = "Basic #{Base64.strict_encode64("#{ENV["BY_DESIGN_INTEGRATION_USERNAME"]}:#{ENV["BY_DESIGN_INTEGRATION_PASSWORD"]}").strip}"
+    { Authorization: auth, "Content-Type": "application/json", Accept: "application/json" }
   end
 
-  def authorization
-    "Basic #{Base64.strict_encode64("#{ENV["BY_DESIGN_INTEGRATION_USERNAME"]}:#{ENV["BY_DESIGN_INTEGRATION_PASSWORD"]}").strip}" # rubocop:disable Layout/LineLength
+private
+  def headers
+    self.class.api_headers
   end
 
   def generate_consumer_payload
