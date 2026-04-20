@@ -144,6 +144,42 @@ describe MoolaPayment do
       )
       _(payment.determine_status).must_equal :pending
     end
+
+    it "preserves recorded status even when all data present" do
+      payment = MoolaPayment.new(
+        cart_token: "test",
+        invoice_number: "NULF-CT:test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :recorded
+      )
+      _(payment.determine_status).must_equal :recorded
+    end
+
+    it "preserves failed status even when all data present" do
+      payment = MoolaPayment.new(
+        cart_token: "test",
+        invoice_number: "NULF-CT:test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :failed
+      )
+      _(payment.determine_status).must_equal :failed
+    end
+
+    it "preserves recording status to prevent interference" do
+      payment = MoolaPayment.new(
+        cart_token: "test",
+        invoice_number: "NULF-CT:test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :recording
+      )
+      _(payment.determine_status).must_equal :recording
+    end
   end
 
   describe "#ready_to_record?" do
@@ -418,6 +454,43 @@ describe MoolaPayment do
       result = payment.update_status_and_enqueue_if_ready!
 
       _(result).must_equal false
+    end
+
+    it "does not re-enqueue when already recorded" do
+      payment = MoolaPayment.create!(
+        cart_token: "already-recorded-test",
+        invoice_number: "NULF-CT:already-recorded-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :recorded,
+        recorded_at: 1.minute.ago
+      )
+
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob) do
+        payment.update_status_and_enqueue_if_ready!
+      end
+
+      # Status must stay recorded
+      _(payment.reload.status).must_equal "recorded"
+    end
+
+    it "does not re-enqueue when failed" do
+      payment = MoolaPayment.create!(
+        cart_token: "already-failed-test",
+        invoice_number: "NULF-CT:already-failed-test",
+        kyc_status: "APPROVE",
+        bydesign_order_id: "12345",
+        payment_details: [ { "type" => "uwallet", "amount" => "100" } ],
+        status: :failed,
+        bydesign_recording_attempts: 5
+      )
+
+      assert_no_enqueued_jobs(only: ByDesignPaymentRecordingJob) do
+        payment.update_status_and_enqueue_if_ready!
+      end
+
+      _(payment.reload.status).must_equal "failed"
     end
 
     it "does not enqueue job when not ready to record" do

@@ -246,10 +246,8 @@ private
       ProcessorSpecificDetail2: autoship_reference,      # autoship_reference if present
       ProcessorSpecificDetail3: normalize_payment_type(payment_type),  # Payment type for differentiation
       ProcessorSpecificDetail4: order_reference,          # order_reference (same as TransactionID)
-
-      # Detail23 is used by Freedom to determine the payment type label
-      # (e.g., "Credit Card", "UWallet Transfer", "UWallet", etc.)
-      ProcessorSpecificDetail23: normalize_payment_type(payment_type),
+      # Note: ProcessorSpecificDetail3 maps to detail23 in ByDesign's DB,
+      # which Freedom reads for payment type labels. No separate Detail23 field needed.
     }
   end
 

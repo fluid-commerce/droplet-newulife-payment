@@ -284,7 +284,7 @@ describe ByDesignPaymentRecordingJob do
       _(request_body["ProcessorSpecificDetail2"]).must_equal "G2XYS6ZBBZ"   # autoship_reference
       _(request_body["ProcessorSpecificDetail3"]).must_equal "p2m"           # uwallet maps to p2m
       _(request_body["ProcessorSpecificDetail4"]).must_equal "TKW2BRL2OP"   # order_reference
-      _(request_body["ProcessorSpecificDetail23"]).must_equal "p2m"        # Detail23: Freedom maps p2m to UWallet label
+      _(request_body.key?("ProcessorSpecificDetail23")).must_equal false   # Detail3 maps to detail23 in DB
     end
 
     it "sends correct card fields for LOAD_FUNDS_VIA_CARD payments" do
@@ -332,8 +332,7 @@ describe ByDesignPaymentRecordingJob do
       _(request_body["Last4CCNumber"]).must_equal "7999"                                  # card_number_last4
       _(request_body["ExpirationDateMMYY"]).must_equal "0829"                            # expiry_date converted
       _(request_body["ProcessorSpecificDetail3"]).must_equal "load_funds_via_card"       # payment type (lowercase)
-      # Detail23: Freedom payment type label
-      _(request_body["ProcessorSpecificDetail23"]).must_equal "load_funds_via_card"
+      _(request_body.key?("ProcessorSpecificDetail23")).must_equal false                # Detail3 maps to detail23 in DB
     end
 
     it "posts order after successful recording when eligible" do
