@@ -39,9 +39,19 @@ class MoolaPayment < ApplicationRecord
     match ? match[1] : nil
   end
 
-  # Determine the correct status based on current state
-  # Call this after updating payment data to ensure status is correct
+  # Determine the correct status based on current state.
+  # Call this after updating payment data to ensure status is correct.
+  #
+  # Preserves terminal states (:recorded, :failed) to prevent duplicate
+  # ByDesign recordings when a second webhook arrives after payments
+  # were already recorded.
   def determine_status
+    # Never regress from terminal states — payments already sent to ByDesign
+    return status.to_sym if recorded? || failed?
+
+    # Recording in progress — don't interfere
+    return :recording if recording?
+
     return :kyc_declined if kyc_status == "DECLINE"
     return :kyc_pending if kyc_status == "REVIEW"
 

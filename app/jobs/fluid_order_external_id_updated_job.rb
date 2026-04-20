@@ -39,6 +39,12 @@ class FluidOrderExternalIdUpdatedJob < WebhookEventJob
       return
     end
 
+    if moola_payment.recorded? || moola_payment.failed?
+      Rails.logger.info("[FluidOrderExternalIdUpdatedJob] Skipping update for terminal payment: " \
+                        "cart_token=#{moola_payment.cart_token}, status=#{moola_payment.status}")
+      return
+    end
+
     # Update with Fluid order data
     moola_payment.assign_attributes(
       fluid_order_id: fluid_order_id,

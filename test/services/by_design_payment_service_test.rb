@@ -106,7 +106,7 @@ describe ByDesignPaymentService do
           body["ProcessorSpecificDetail2"] == "G2XYS6ZBBZ" &&         # autoship_reference
           body["ProcessorSpecificDetail3"] == "load_funds_via_card" && # payment type (lowercase)
           body["ProcessorSpecificDetail4"] == "TKW2BRL2OP" &&         # order_reference
-          body["ProcessorSpecificDetail23"] == "load_funds_via_card"   # Detail23: Freedom payment type label
+          !body.key?("ProcessorSpecificDetail23")                     # removed: Detail3 maps to detail23 in DB
         }
         .to_return(
           status: 200,
@@ -143,7 +143,7 @@ describe ByDesignPaymentService do
           !body.key?("Last4CCNumber") &&
           !body.key?("ExpirationDateMMYY") &&
           body["ProcessorSpecificDetail3"] == "p2m" &&
-          body["ProcessorSpecificDetail23"] == "p2m"
+          !body.key?("ProcessorSpecificDetail23")
         }
         .to_return(
           status: 200,
@@ -338,7 +338,7 @@ describe ByDesignPaymentService do
         _(payload[:ProcessorSpecificDetail2]).must_equal "G2XYS6ZBBZ"       # autoship_reference
         _(payload[:ProcessorSpecificDetail3]).must_equal "p2m"               # uwallet maps to p2m
         _(payload[:ProcessorSpecificDetail4]).must_equal "TKW2BRL2OP"       # order_reference
-        _(payload[:ProcessorSpecificDetail23]).must_equal "p2m"            # Detail23: Freedom maps p2m to UWallet
+        _(payload.key?(:ProcessorSpecificDetail23)).must_equal false       # Detail3 maps to detail23 in DB
       end
 
       it "uses promissory amount for Pending payments" do
@@ -386,7 +386,7 @@ describe ByDesignPaymentService do
         _(payload[:PromissoryAmount]).must_equal 50.0
         _(payload[:PaymentStatusTypeID]).must_equal 6  # Pending
         _(payload[:ProcessorSpecificDetail3]).must_equal "load_funds_via_cash"
-        _(payload[:ProcessorSpecificDetail23]).must_equal "load_funds_via_cash"
+        _(payload.key?(:ProcessorSpecificDetail23)).must_equal false
       end
     end
 

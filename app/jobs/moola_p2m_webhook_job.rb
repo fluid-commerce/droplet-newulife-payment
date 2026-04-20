@@ -78,6 +78,12 @@ private
   end
 
   def update_payment_record(payment)
+    if payment.recorded? || payment.failed?
+      Rails.logger.info("[MoolaP2mWebhookJob] Skipping update for terminal payment: " \
+                        "cart_token=#{payment.cart_token}, status=#{payment.status}")
+      return
+    end
+
     payment.assign_attributes(
       moola_transaction_id: @payload[:transaction_id] || @payload[:id],
       kyc_status: kyc_status,
@@ -93,6 +99,12 @@ private
   # Update card details from load_funds_via_card webhook
   # These webhooks contain: card_number_last4, expiry_date, payment_instrument_uuid
   def update_card_details(payment)
+    if payment.recorded? || payment.failed?
+      Rails.logger.info("[MoolaP2mWebhookJob] Skipping card update for terminal payment: " \
+                        "cart_token=#{payment.cart_token}, status=#{payment.status}")
+      return
+    end
+
     card_details = extract_card_details
     return if card_details.empty?
 
