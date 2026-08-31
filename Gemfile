@@ -22,7 +22,12 @@ gem "solid_queue"
 gem "thruster", require: false
 gem "vite_rails", "~> 3.0", ">= 3.0.19"
 gem "mission_control-jobs"
-gem "httplog"
+# require: false so Bundler.require never loads it. httplog patches Net::HTTP
+# and friends on require and logs full request and response bodies — on this
+# droplet that means uPayments, Moola and ByDesign traffic: card metadata,
+# customer PII and credentials, into Cloud Logging. Opt in locally with
+# `RUBYOPT="-rhttplog"` or an explicit require when you actually need it.
+gem "httplog", require: false
 
 group :development, :test do
   gem "brakeman", require: false
