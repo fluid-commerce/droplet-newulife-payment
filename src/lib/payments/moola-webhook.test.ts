@@ -218,7 +218,12 @@ describe("processMoolaWebhook — at-least-once delivery", () => {
     expect(runRecordingMock).toHaveBeenCalledOnce();
   });
 
-  it("leaves a LIVE recording claim alone", async () => {
+  it("asks for a re-delivery rather than acknowledging a row a live run holds", async () => {
+    // The earlier shape of this — only driving a STALE claim — meant a
+    // re-delivery arriving inside the lease answered 202, and once the lease
+    // expired nothing was left to come back for the row. Every `recording` row
+    // is handed to the claim now; a live run answers `in_progress`, which is a
+    // retry request, not a completion.
     setLedgerRow(
       ledgerRow({
         status: MOOLA_PAYMENT_STATUS.recording,
@@ -226,10 +231,17 @@ describe("processMoolaWebhook — at-least-once delivery", () => {
         paymentDetails: p2mBody.payment_details,
       }),
     );
+    runRecordingMock.mockResolvedValue({
+      ran: false,
+      reason: "in_progress",
+      results: [],
+      needsRetry: true,
+    });
 
-    await processMoolaWebhook(p2mBody);
+    const outcome = await processMoolaWebhook(p2mBody);
 
-    expect(runRecordingMock).not.toHaveBeenCalled();
+    expect(runRecordingMock).toHaveBeenCalledOnce();
+    expect(outcome.recordingNeedsRetry).toBe(true);
   });
 
   it("reports a retryable recording failure so the caller can ask for a re-delivery", async () => {

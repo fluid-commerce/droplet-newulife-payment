@@ -60,9 +60,8 @@ import {
   applyAndDetermineStatus,
   formatInvoiceNumber,
   jsonObjectOf,
-  readyToRecord,
   runRecording,
-  stateOf,
+  shouldDriveRecording,
 } from "@/lib/payments";
 
 /**
@@ -224,11 +223,24 @@ export async function linkFluidOrder(
     fluidWebhookPayload: checkoutResponse as Prisma.InputJsonValue,
   });
 
-  if (readyToRecord(stateOf(updated))) {
+  if (shouldDriveRecording(updated)) {
     // The Moola webhook may already have landed. See the note at the top of
     // src/lib/payments/bydesign-recording.ts on why this runs here rather than
     // being enqueued.
-    await runRecording(updated.id);
+    const outcome = await runRecording(updated.id);
+
+    // Unlike the webhook routes, this one CANNOT ask for a retry: the shopper
+    // has paid and must be redirected to their order, not shown an error. In
+    // practice `order.external_id_synced` (leg ④) arrives afterwards and
+    // re-drives the run — the row is `matched`, not terminal, so it will. If it
+    // does not, this line is the only signal.
+    if (outcome.needsRetry) {
+      console.error(
+        `[CheckoutSuccess] ByDesign recording for ${updated.cartToken} did not ` +
+          "complete and this route cannot retry it. Expect order.external_id_synced " +
+          "to re-drive it; if it does not, the row stays in `matched`.",
+      );
+    }
   }
 
   return updated;
@@ -339,19 +351,29 @@ export async function completeCheckout({
     );
     return { kind: "back_to_checkout", reason: "no confirmation url" };
   } catch (error) {
-    // Same reasoning as above: the claim stays. If this was a timeout on the
-    // checkout call, Fluid may hold an order this droplet never saw, and a
-    // retry would make a second one.
-    const message =
-      error instanceof FluidError
-        ? `Fluid API error ${error.status}`
-        : error instanceof Error
-          ? error.message
-          : String(error);
+    // Same reasoning as above: the claim stays. If this was a timeout, Fluid may
+    // hold a payment or an order this droplet never saw, and a retry would make
+    // a second one.
+    //
+    // A FluidError means Fluid ANSWERED — it said no, and nothing was created.
+    // Anything else means no answer came back at all, and that is the case
+    // where the claim expiring is a real risk rather than a theoretical one.
+    // Neither can be settled from here; see CUTOVER.md section 3.
+    const answered = error instanceof FluidError;
+    const message = answered
+      ? `Fluid API error ${error.status}`
+      : error instanceof Error
+        ? error.message
+        : String(error);
     console.error(
-      `[CheckoutSuccess] Checkout failed for cart ${cartToken}: ${message}. ` +
+      `[CheckoutSuccess] ${answered ? "" : "MANUAL CHECK REQUIRED: "}` +
+        `Checkout failed for cart ${cartToken}: ${message}. ` +
         `The claim is held for ${CHECKOUT_CLAIM_TTL_MS / 60000} minutes so a ` +
-        "refresh cannot start a second checkout.",
+        "refresh cannot start a second checkout" +
+        (answered
+          ? "."
+          : ", but Fluid never answered — it may hold a payment or an order " +
+            "this droplet never saw."),
     );
     return { kind: "back_to_checkout", reason: "fluid error" };
   }

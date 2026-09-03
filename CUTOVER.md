@@ -135,11 +135,20 @@ What the port DOES fix is replay, with two of the three columns migration
   for — and without this column that expiry would only DELAY a duplicate
   payment rather than prevent one. A retry after expiry reuses the uuid.
 
-What is still open, and is part of this blocker rather than separate from it: a
-`checkoutCart` call that created the order and whose response was lost. The
-retry calls `checkoutCart` again with the SAME payment uuid, which is the best
-this droplet can do without an idempotency key or a cart-status lookup on
-Fluid's side. Neither is known to exist. Establish one before this leg moves.
+What is still open, and is part of this blocker rather than separate from it —
+the LOST RESPONSE. Two shapes, both irreducible without an idempotency key or a
+cart-status lookup on Fluid's side, neither of which is known to exist:
+
+- `createPayment` succeeds at Fluid and its response never arrives. No uuid is
+  stored, the claim expires after ten minutes, and a retry creates a second
+  payment. The log line for this carries `MANUAL CHECK REQUIRED` and says Fluid
+  never answered; a Fluid error *response* is a different, safe case, because
+  Fluid answered and created nothing.
+- `checkoutCart` creates the order and its response is lost. The retry at least
+  carries the same payment uuid.
+
+Establish one of the two mechanisms before this leg moves. Until then, treat any
+`MANUAL CHECK REQUIRED` line from `[CheckoutSuccess]` as an incident.
 
 **B2. `MOOLA_WEBHOOK_SECRET` must be set, on both sides, before leg ③ moves.**
 Rails verifies the Moola signature only `if: :signature_verification_enabled?`,
@@ -391,12 +400,22 @@ Two consequences follow, and both are load-bearing:
   and the re-delivery re-drives the run. Expect to see 503s from
   `/webhooks/moola/p2m` during a ByDesign outage; that is the retry working, not
   a droplet fault. It stops after `MAX_RECORDING_ATTEMPTS`, when the row becomes
-  `failed` and needs an operator.
+  `failed` and needs an operator. A re-delivery that finds another run already
+  holding the row also answers 5xx rather than 202 — otherwise a run that died
+  inside its lease would be acknowledged and never revisited.
 - An abandoned claim (process killed mid-run) is reclaimed after 15 minutes,
   measured from `recording_claimed_at` — its own column, because an inbound
   webhook writes to the row while a run holds it and keying the expiry on
-  `updated_at` would push it out forever. Reclaiming is safe only because of the
-  receipts.
+  `updated_at` would push it out forever. The claim is heartbeaten after each
+  payment line, so a long cart cannot outlive its own lease and be reclaimed
+  underneath itself. Reclaiming is safe only because of the receipts.
+- **An UNKNOWN outcome is never retried.** A ByDesign read timeout, or a Save
+  that succeeded and whose receipt could not be written, leaves the droplet
+  unable to tell a recorded payment from an unrecorded one. The row goes
+  straight to `failed` with `INDETERMINATE:` in `last_error` and the log line
+  says `MANUAL CHECK REQUIRED`. Reconcile against ByDesign before anything else
+  Saves against that order. A DEFINITE rejection — ByDesign answered and said no
+  — stays retryable.
 
 ---
 
@@ -415,6 +434,10 @@ Two consequences follow, and both are load-bearing:
 - Cart tokens are still written to logs, as they are in Rails. Given B1 that
   makes log access equivalent to checkout-forgery access. Closing B1 closes
   that too; until then, treat this droplet's logs as sensitive.
+- Two grep patterns are worth an alert from day one:
+  `MANUAL CHECK REQUIRED` (an outcome nobody knows — money may have moved) and
+  `[fluid-callback:redirect-cart-payment] rejected` (a callback refused behind a
+  200, which no status code or error rate will show you).
 - The Prisma schema annotates every mapped string as `@db.VarChar(255)`, so
   `prisma db push` would be a no-op rather than proposing `varchar -> text` on
   every column of a live payments table. That is belt-and-braces: the deploy

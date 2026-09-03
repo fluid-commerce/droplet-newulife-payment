@@ -279,16 +279,26 @@ export async function claimForRecording(
  * True when this row should be handed to `runRecording`.
  *
  * Two cases, not one. The obvious one is a row that has just become `matched`.
- * The second is a row stuck in `recording` because the run that claimed it
- * died: nothing else would ever pick it up, since `determineStatus` preserves
- * `recording` and `readyToRecord` is false for it. `claimForRecording` decides
- * whether the claim is actually stale, so a live run is left alone.
+ * The second is ANY row in `recording` — including one another run is holding
+ * right now.
+ *
+ * That second case looks wasteful and is not. `determineStatus` preserves
+ * `recording` and `readyToRecord` is false for it, so a row whose run died is
+ * invisible to the first test; and testing only for a STALE claim was not
+ * enough either, because a re-delivery arriving inside the lease would answer
+ * 202 and nothing would ever come back after the lease expired. Handing every
+ * `recording` row to `claimForRecording` means a live run answers
+ * `in_progress`, the caller asks for a re-delivery, and the row is picked up
+ * once the lease does expire.
+ *
+ * `claimForRecording` is what decides whether the claim is stale. This only
+ * decides whether to ask.
  */
-export function shouldDriveRecording(
-  row: MoolaPayment,
-  now: Date = new Date(),
-): boolean {
-  return readyToRecord(stateOf(row)) || isStaleRecordingClaim(row, now);
+export function shouldDriveRecording(row: MoolaPayment): boolean {
+  return (
+    readyToRecord(stateOf(row)) ||
+    row.status === MOOLA_PAYMENT_STATUS.recording
+  );
 }
 
 /**

@@ -74,6 +74,17 @@ export interface PaymentLineResult {
   skipped?: boolean;
   alreadyRecorded?: boolean;
   error?: string | null;
+  /**
+   * Whether this payment reached ByDesign is UNKNOWN.
+   *
+   * Set when ByDesign never answered, and when a Save succeeded but its receipt
+   * could not be written. Both leave the droplet unable to tell a recorded
+   * payment from an unrecorded one, and there is no idempotency key to settle
+   * it with. The run stops and the row goes terminal so a human looks — the
+   * alternative is retrying an unknown up to MAX_RECORDING_ATTEMPTS times,
+   * which is how one payment becomes five.
+   */
+  indeterminate?: boolean;
 }
 
 /** Rails: `build_p2m_data`. */
@@ -198,7 +209,12 @@ export async function recordPaymentOnce({
   });
 
   if (!result.success) {
-    return { paymentId, success: false, error: result.error ?? "Unknown error" };
+    return {
+      paymentId,
+      success: false,
+      error: result.error ?? "Unknown error",
+      indeterminate: result.indeterminate,
+    };
   }
 
   try {
@@ -231,13 +247,16 @@ export async function recordPaymentOnce({
     // failed so an operator sees it, and so the run does not mark the cart
     // recorded on the strength of a receipt that was not written.
     console.error(
-      `[Recording] Could not write receipt for payment ${paymentId}:`,
+      `[Recording] MANUAL CHECK REQUIRED: payment ${paymentId} was saved to ` +
+        `ByDesign order ${orderId} but the receipt could not be written. ` +
+        "A retry would Save it again, so this run stops here.",
       error instanceof Error ? error.message : error,
     );
     return {
       paymentId,
       success: false,
       error: "Payment was saved to ByDesign but the receipt could not be written",
+      indeterminate: true,
     };
   }
 
@@ -348,6 +367,34 @@ async function recordFailure(id: bigint, message: string): Promise<boolean> {
   });
 }
 
+/**
+ * Moves a row straight to `failed` without spending its attempt budget.
+ *
+ * Used only for an outcome nobody knows. `failed` is terminal, so no webhook
+ * re-delivery and no reclaim will touch it again — which is the point: a human
+ * has to reconcile against ByDesign before anything else Saves against this
+ * order.
+ *
+ * A terminal row is left alone, exactly as recordFailure leaves it alone.
+ */
+async function giveUp(id: bigint, message: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM moola_payments WHERE id = ${id} FOR UPDATE`;
+    const current = await tx.moolaPayment.findUnique({ where: { id } });
+    if (!current || isTerminal(current.status)) return;
+
+    await tx.moolaPayment.update({
+      where: { id },
+      data: {
+        status: MOOLA_PAYMENT_STATUS.failed,
+        lastError: message,
+        bydesignRecordingAttempts: (current.bydesignRecordingAttempts ?? 0) + 1,
+        recordingClaimedAt: null,
+      },
+    });
+  });
+}
+
 export interface RecordingOutcome {
   ran: boolean;
   reason: string;
@@ -429,15 +476,29 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
     // ByDesign order is not something this repository knows to be safe, and the
     // receipts table protects re-runs, not concurrency inside one run.
     for (const payment of recordable) {
-      results.push(
-        await recordPaymentOnce({
-          row,
-          payment,
-          p2mData,
-          cardDetails,
-          billingAddress,
-        }),
-      );
+      const lineResult = await recordPaymentOnce({
+        row,
+        payment,
+        p2mData,
+        cardDetails,
+        billingAddress,
+      });
+      results.push(lineResult);
+
+      // Heartbeat the claim. The lease is a fixed 15 minutes from when it was
+      // taken, and each ByDesign call can burn 30s of it — so a cart with
+      // enough payment lines could outlive its own lease and be reclaimed
+      // underneath itself, putting two runs on the same lines with neither
+      // one's receipts written yet. Refreshing per line makes the lease
+      // measure "time since progress" rather than "time since start".
+      await prisma.moolaPayment
+        .update({ where: { id }, data: { recordingClaimedAt: new Date() } })
+        .catch(() => {});
+
+      // STOP on an unknown. Continuing would Save the remaining lines and then
+      // report a failure the caller retries — re-Saving a line whose outcome
+      // nobody knows.
+      if (lineResult.indeterminate) break;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -450,6 +511,23 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
       .filter((r) => !r.success)
       .map((r) => `${r.paymentId}: ${r.error}`)
       .join("; ");
+
+    // An unknown outcome is not retried. See PaymentLineResult.indeterminate.
+    if (results.some((r) => r.indeterminate)) {
+      console.error(
+        `[Recording] MANUAL CHECK REQUIRED for ${row.cartToken}: ByDesign did ` +
+          `not confirm a payment, so whether it was recorded is unknown. ` +
+          `Giving up rather than retrying. ${message}`,
+      );
+      await giveUp(id, `INDETERMINATE: ${message}`);
+      return {
+        ran: true,
+        reason: "indeterminate",
+        results,
+        needsRetry: false,
+      };
+    }
+
     console.error(`[Recording] Recording failed: ${message}`);
     const retryable = await recordFailure(id, message);
     return {

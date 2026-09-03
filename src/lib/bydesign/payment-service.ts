@@ -69,6 +69,18 @@ export interface ByDesignCallResult {
   reason?: string;
   response?: Record<string, unknown> | null;
   error?: string | null;
+  /**
+   * ByDesign never answered, so whether the payment was recorded is UNKNOWN.
+   *
+   * A read timeout is not the same failure as a 400. ByDesign may have
+   * committed the Save and lost the response — there is no idempotency key to
+   * settle it with, and no lookup this repository knows about. Retrying an
+   * unknown is how one payment becomes five.
+   *
+   * The caller stops and hands the row to an operator instead. A definite
+   * failure (ByDesign answered, and said no) stays retryable.
+   */
+  indeterminate?: boolean;
 }
 
 export function shouldSkipPayment(payment: PaymentDetail): boolean {
@@ -143,23 +155,32 @@ export function calculatePromissoryAmount(
 }
 
 /**
- * `PaymentDate`, to SECOND precision.
+ * `PaymentDate`, byte-identical to what the Ruby emits.
  *
  * `completed_at` is milliseconds since the epoch, as a string.
  *
- * The truncation is not cosmetic. Ruby's `Time#iso8601` emits
- * `2026-01-01T00:00:00Z`; JavaScript's `toISOString()` emits
- * `2026-01-01T00:00:00.000Z`. Every ByDesign Save payload would carry a
- * different string from the one the Rails app sends, on a field a payment
- * processor parses — a divergence with no upside, in the one place a migration
- * has no business introducing one.
+ * Two differences from a naive `toISOString()`, both measured against Ruby
+ * rather than assumed:
+ *
+ *   Ruby  `Time.at(1767187441840 / 1000).iso8601` -> "2025-12-31T13:24:01+00:00"
+ *   JS    `new Date(1767187441 * 1000).toISOString()` -> "2025-12-31T13:24:01.000Z"
+ *
+ * So the milliseconds are dropped AND `Z` is written as `+00:00`. Neither is
+ * cosmetic: this is a field a payment processor parses, on every Save, and a
+ * migration has no business changing it.
+ *
+ * The `+00:00` assumes the container runs in UTC. It does — neither
+ * docker/Dockerfile nor config/ sets TZ, so the base image's UTC applies, and
+ * `Time.at` renders in the SYSTEM zone (not `config.time_zone`). If that ever
+ * stops being true, the Rails app's own output moves with it and this has to
+ * follow.
  */
 export function paymentDate(
   p2mData: P2mData,
   now: Date = new Date(),
 ): string {
-  const toSeconds = (date: Date) =>
-    date.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const toRubyIso = (date: Date) =>
+    date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
 
   const completedAt = p2mData.completed_at;
   if (completedAt !== undefined && completedAt !== null && completedAt !== "") {
@@ -169,10 +190,10 @@ export function paymentDate(
       // sub-second part is dropped rather than rounded.
       const seconds = Math.trunc(millis / 1000);
       const date = new Date(seconds * 1000);
-      if (!Number.isNaN(date.getTime())) return toSeconds(date);
+      if (!Number.isNaN(date.getTime())) return toRubyIso(date);
     }
   }
-  return toSeconds(now);
+  return toRubyIso(now);
 }
 
 export function extractLast4(cardDetails: CardDetails): string | null {
@@ -335,8 +356,22 @@ async function postWithTimeout(
     // into the recording run's error handler, which is one of the paths that
     // used to put an already-recorded row back into a re-runnable state.
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[ByDesignPaymentService] ${path} failed: ${message}`);
-    return { success: false, error: message, response: null };
+    // A timeout means the request WAS sent and no answer came back. The Ruby
+    // rescued `Net::OpenTimeout, Net::ReadTimeout` separately and then treated
+    // them the same as everything else; this port does not, because "we do not
+    // know whether the money moved" is a different fact from "it did not".
+    const timedOut =
+      controller.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError");
+    console.error(
+      `[ByDesignPaymentService] ${path} failed${timedOut ? " (NO ANSWER)" : ""}: ${message}`,
+    );
+    return {
+      success: false,
+      error: message,
+      response: null,
+      indeterminate: timedOut,
+    };
   } finally {
     clearTimeout(timer);
   }

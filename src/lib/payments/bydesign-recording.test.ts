@@ -28,6 +28,7 @@ type ByDesignResult = {
   success: boolean;
   response?: Record<string, unknown> | null;
   error?: string | null;
+  indeterminate?: boolean;
 };
 
 const recordPaymentMock = vi.hoisted(() =>
@@ -380,6 +381,108 @@ describe("runRecording — failure never regresses a terminal row", () => {
     const failureWrite = mockTx.moolaPayment.update.mock.calls.at(-1)![0];
     expect(failureWrite.data.status).toBeUndefined();
     expect(failureWrite.data.lastError).toContain("nope");
+  });
+});
+
+describe("runRecording — an UNKNOWN outcome is never retried", () => {
+  it("gives up immediately when ByDesign did not answer", async () => {
+    // A read timeout is not a rejection. ByDesign may have committed the Save
+    // and lost the response, and there is no idempotency key to settle it with,
+    // so retrying is how one payment becomes five. The row goes terminal and a
+    // human reconciles.
+    mockTx.moolaPayment.findUnique.mockResolvedValue(ledgerRow());
+    recordPaymentMock.mockResolvedValue({
+      success: false,
+      error: "Request timeout",
+      indeterminate: true,
+    });
+
+    const outcome = await runRecording(1n);
+
+    expect(outcome.reason).toBe("indeterminate");
+    expect(outcome.needsRetry).toBe(false);
+
+    const write = mockTx.moolaPayment.update.mock.calls.at(-1)![0];
+    expect(write.data.status).toBe(MOOLA_PAYMENT_STATUS.failed);
+    expect(String(write.data.lastError)).toContain("INDETERMINATE");
+  });
+
+  it("stops before Saving the remaining lines once one outcome is unknown", async () => {
+    const twoLines = [
+      { id: "PAY_A", type: "uwallet", amount: "10", status: "Success" },
+      { id: "PAY_B", type: "uwallet", amount: "20", status: "Success" },
+    ];
+    mockTx.moolaPayment.findUnique.mockResolvedValue(
+      ledgerRow({ paymentDetails: twoLines }),
+    );
+    mockTx.moolaPayment.update.mockImplementation(
+      async ({ where, data }: { where: { id: bigint }; data: object }) =>
+        ledgerRow({ id: where.id, paymentDetails: twoLines, ...data }),
+    );
+    recordPaymentMock.mockResolvedValue({
+      success: false,
+      error: "Request timeout",
+      indeterminate: true,
+    });
+
+    await runRecording(1n);
+
+    expect(recordPaymentMock).toHaveBeenCalledOnce();
+  });
+
+  it("treats a Save that succeeded with no receipt as unknown too", async () => {
+    mockTx.moolaPayment.findUnique.mockResolvedValue(ledgerRow());
+    mockPrisma.bydesignPaymentReceipt.create.mockRejectedValue(
+      new Error("disk full"),
+    );
+
+    const outcome = await runRecording(1n);
+
+    expect(outcome.reason).toBe("indeterminate");
+    expect(outcome.needsRetry).toBe(false);
+  });
+
+  it("still retries a DEFINITE ByDesign rejection", async () => {
+    // The counterweight: a 400 means ByDesign answered and did not record it.
+    // That is safe to retry, and must stay retryable or a transient
+    // misconfiguration would strand every payment.
+    mockTx.moolaPayment.findUnique.mockResolvedValue(ledgerRow());
+    recordPaymentMock.mockResolvedValue({
+      success: false,
+      error: "HTTP 400",
+      indeterminate: false,
+    });
+
+    const outcome = await runRecording(1n);
+
+    expect(outcome.reason).toBe("partial_failure");
+    expect(outcome.needsRetry).toBe(true);
+  });
+});
+
+describe("runRecording — the claim is heartbeaten", () => {
+  it("refreshes recording_claimed_at after each line", async () => {
+    // The lease is 15 minutes from when it was TAKEN, and each ByDesign call
+    // can burn 30s of it — so a long enough cart could outlive its own lease
+    // and be reclaimed underneath itself, putting two runs on the same lines.
+    const twoLines = [
+      { id: "PAY_A", type: "uwallet", amount: "10", status: "Success" },
+      { id: "PAY_B", type: "uwallet", amount: "20", status: "Success" },
+    ];
+    mockTx.moolaPayment.findUnique.mockResolvedValue(
+      ledgerRow({ paymentDetails: twoLines }),
+    );
+    mockTx.moolaPayment.update.mockImplementation(
+      async ({ where, data }: { where: { id: bigint }; data: object }) =>
+        ledgerRow({ id: where.id, paymentDetails: twoLines, ...data }),
+    );
+
+    await runRecording(1n);
+
+    const heartbeats = mockPrisma.moolaPayment.update.mock.calls.filter(
+      (call) => call[0].data.recordingClaimedAt instanceof Date,
+    );
+    expect(heartbeats).toHaveLength(2);
   });
 });
 

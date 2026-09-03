@@ -242,20 +242,23 @@ describe("amounts", () => {
 });
 
 describe("paymentDate", () => {
-  it("reads completed_at as milliseconds and emits SECOND precision", () => {
-    // Ruby's `Time#iso8601` emits `...41Z`; JavaScript's `toISOString()` emits
-    // `...41.000Z`. Every ByDesign Save payload would otherwise carry a string
-    // the Rails app never sends.
+  it("emits exactly what Ruby emits, offset spelling included", () => {
+    // Measured, not assumed:
+    //   TZ=UTC ruby -rtime -e 'puts Time.at(1767187441840/1000).iso8601'
+    //   => 2025-12-31T13:24:01+00:00
+    // JavaScript's `toISOString()` would give "2025-12-31T13:24:01.000Z" —
+    // different in TWO ways, on a field a payment processor parses, on every
+    // Save.
     expect(paymentDate({ completed_at: "1767187441840" })).toBe(
-      "2025-12-31T13:24:01Z",
+      "2025-12-31T13:24:01+00:00",
     );
   });
 
-  it("falls back to now, also without milliseconds", () => {
+  it("falls back to now, in the same spelling", () => {
     const now = new Date("2026-05-05T00:00:00.123Z");
-    expect(paymentDate({}, now)).toBe("2026-05-05T00:00:00Z");
+    expect(paymentDate({}, now)).toBe("2026-05-05T00:00:00+00:00");
     expect(paymentDate({ completed_at: "not a number" }, now)).toBe(
-      "2026-05-05T00:00:00Z",
+      "2026-05-05T00:00:00+00:00",
     );
   });
 });
