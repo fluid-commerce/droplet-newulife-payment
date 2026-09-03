@@ -142,21 +142,37 @@ export function calculatePromissoryAmount(
     : 0;
 }
 
-/** `completed_at` is milliseconds since the epoch, as a string. */
+/**
+ * `PaymentDate`, to SECOND precision.
+ *
+ * `completed_at` is milliseconds since the epoch, as a string.
+ *
+ * The truncation is not cosmetic. Ruby's `Time#iso8601` emits
+ * `2026-01-01T00:00:00Z`; JavaScript's `toISOString()` emits
+ * `2026-01-01T00:00:00.000Z`. Every ByDesign Save payload would carry a
+ * different string from the one the Rails app sends, on a field a payment
+ * processor parses — a divergence with no upside, in the one place a migration
+ * has no business introducing one.
+ */
 export function paymentDate(
   p2mData: P2mData,
   now: Date = new Date(),
 ): string {
+  const toSeconds = (date: Date) =>
+    date.toISOString().replace(/\.\d{3}Z$/, "Z");
+
   const completedAt = p2mData.completed_at;
   if (completedAt !== undefined && completedAt !== null && completedAt !== "") {
     const millis = Number(completedAt);
     if (Number.isFinite(millis)) {
+      // Integer-divided by 1000 first, exactly as the Ruby does, so the
+      // sub-second part is dropped rather than rounded.
       const seconds = Math.trunc(millis / 1000);
       const date = new Date(seconds * 1000);
-      if (!Number.isNaN(date.getTime())) return date.toISOString();
+      if (!Number.isNaN(date.getTime())) return toSeconds(date);
     }
   }
-  return now.toISOString();
+  return toSeconds(now);
 }
 
 export function extractLast4(cardDetails: CardDetails): string | null {

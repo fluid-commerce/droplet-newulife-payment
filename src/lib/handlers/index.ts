@@ -32,7 +32,17 @@ export function initializeHandlers(): void {
   registerHandler("droplet.installed", handleDropletInstalled);
   registerHandler("droplet.uninstalled", handleDropletUninstalled);
   registerHandler("order.external_id_synced", async (payload) => {
-    await handleOrderExternalIdSynced(payload);
+    const outcome = await handleOrderExternalIdSynced(payload);
+
+    // Same reasoning as the Moola route: this app has no queue, so a recording
+    // run that failed transiently is retried by the DELIVERY. Throwing makes
+    // the webhook route answer 500, which Fluid re-sends. Idempotent because of
+    // `bydesign_payment_receipts`, and bounded by MAX_RECORDING_ATTEMPTS.
+    if (outcome.recordingNeedsRetry) {
+      throw new Error(
+        "ByDesign recording did not complete; retry this delivery",
+      );
+    }
   });
 }
 

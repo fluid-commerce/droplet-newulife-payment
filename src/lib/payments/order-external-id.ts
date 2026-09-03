@@ -16,8 +16,7 @@ import { runRecording } from "./bydesign-recording";
 import {
   applyAndDetermineStatus,
   jsonObjectOf,
-  readyToRecord,
-  stateOf,
+  shouldDriveRecording,
 } from "./moola-payment";
 import { isTerminal, statusName } from "./types";
 
@@ -30,6 +29,8 @@ export interface OrderSyncOutcome {
     | "no_ledger_row"
     | "terminal_skipped";
   recordingRan?: boolean;
+  /** See MoolaWebhookOutcome.recordingNeedsRetry — the caller raises so Fluid retries. */
+  recordingNeedsRetry?: boolean;
 }
 
 export async function handleOrderExternalIdSynced(
@@ -103,9 +104,11 @@ export async function handleOrderExternalIdSynced(
   });
 
   let recordingRan = false;
-  if (readyToRecord(stateOf(updated))) {
+  let recordingNeedsRetry = false;
+  if (shouldDriveRecording(updated)) {
     const outcome = await runRecording(updated.id);
     recordingRan = outcome.ran;
+    recordingNeedsRetry = outcome.needsRetry;
   }
 
   console.log(
@@ -113,5 +116,5 @@ export async function handleOrderExternalIdSynced(
       `status=${statusName(updated.status)}, recording_ran=${recordingRan}`,
   );
 
-  return { handled: true, reason: "processed", recordingRan };
+  return { handled: true, reason: "processed", recordingRan, recordingNeedsRetry };
 }

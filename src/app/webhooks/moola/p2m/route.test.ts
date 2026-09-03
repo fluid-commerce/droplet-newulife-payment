@@ -9,7 +9,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHmac } from "node:crypto";
 
-type WebhookOutcome = { handled: boolean; reason: string };
+type WebhookOutcome = {
+  handled: boolean;
+  reason: string;
+  recordingNeedsRetry?: boolean;
+};
 
 const processMoolaWebhookMock = vi.hoisted(() =>
   vi.fn<(payload: Record<string, unknown>) => Promise<WebhookOutcome>>(),
@@ -160,6 +164,21 @@ describe("POST /webhooks/moola/p2m", () => {
     const response = await POST(signedRequest());
 
     expect(response.status).toBe(500);
+  });
+
+  it("answers 5xx when the ByDesign recording did not finish, so Moola re-delivers", async () => {
+    // There is no queue. Rails retried the recording job five times; here the
+    // DELIVERY is the retry, and answering 202 would strand the row in
+    // `matched` forever with nothing coming back for it.
+    processMoolaWebhookMock.mockResolvedValue({
+      handled: true,
+      reason: "processed",
+      recordingNeedsRetry: true,
+    });
+
+    const response = await POST(signedRequest());
+
+    expect(response.status).toBe(503);
   });
 
   it("still answers 202 when the payload is one it deliberately ignores", async () => {

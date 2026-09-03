@@ -304,11 +304,11 @@ export async function postOrderIfEligible(row: MoolaPayment): Promise<void> {
  * has since become terminal. Rails wrote `status: :matched` unconditionally,
  * which is duplicate-recording paths (a) and (b).
  */
-async function recordFailure(id: bigint, message: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+async function recordFailure(id: bigint, message: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM moola_payments WHERE id = ${id} FOR UPDATE`;
     const current = await tx.moolaPayment.findUnique({ where: { id } });
-    if (!current) return;
+    if (!current) return false;
 
     if (isTerminal(current.status)) {
       console.warn(
@@ -320,21 +320,31 @@ async function recordFailure(id: bigint, message: string): Promise<void> {
         where: { id },
         data: { lastError: message },
       });
-      return;
+      return false;
     }
 
     const attempts = (current.bydesignRecordingAttempts ?? 0) + 1;
+    const givingUp = maxAttemptsReached(attempts);
 
     await tx.moolaPayment.update({
       where: { id },
       data: {
         bydesignRecordingAttempts: attempts,
         lastError: message,
-        status: maxAttemptsReached(attempts)
+        status: givingUp
           ? MOOLA_PAYMENT_STATUS.failed
           : MOOLA_PAYMENT_STATUS.matched,
+        // Release the recording claim: the row is back to `matched` (or
+        // terminal) and the timestamp would otherwise describe a claim nobody
+        // holds.
+        recordingClaimedAt: null,
       },
     });
+
+    // Retryable until the attempt budget runs out. That budget is Rails'
+    // MAX_RECORDING_ATTEMPTS, now spent on webhook re-deliveries rather than on
+    // ActiveJob retries.
+    return !givingUp;
   });
 }
 
@@ -342,6 +352,19 @@ export interface RecordingOutcome {
   ran: boolean;
   reason: string;
   results: PaymentLineResult[];
+  /**
+   * The run did not finish and the row can still be retried.
+   *
+   * This app has no queue. Rails retried the recording job up to five times;
+   * here the caller turns this into a 5xx so the WEBHOOK DELIVERY is the retry —
+   * Moola and Fluid both re-send a non-2xx. Without it, a transient ByDesign
+   * outage would leave the row `matched` forever with a 202 already sent, and
+   * nothing would ever come back for it.
+   *
+   * False once the row is terminal (`failed` after MAX_RECORDING_ATTEMPTS, or
+   * `recorded`), because re-delivering then achieves nothing.
+   */
+  needsRetry: boolean;
 }
 
 /**
@@ -355,7 +378,15 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
 
   if (!claim.claimed || !claim.row) {
     console.log(`[Recording] Not claimed (${claim.reason}) for payment ${id}`);
-    return { ran: false, reason: claim.reason, results: [] };
+    // `in_progress` is the only not-claimed reason worth coming back for: another
+    // run holds the row right now. Terminal, not-found and not-ready are all
+    // settled answers.
+    return {
+      ran: false,
+      reason: claim.reason,
+      results: [],
+      needsRetry: claim.reason === "in_progress",
+    };
   }
 
   const row = claim.row;
@@ -384,7 +415,12 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
       },
     });
     await postOrderIfEligible(recorded);
-    return { ran: true, reason: "no_recordable_payments", results: [] };
+    return {
+      ran: true,
+      reason: "no_recordable_payments",
+      results: [],
+      needsRetry: false,
+    };
   }
 
   const results: PaymentLineResult[] = [];
@@ -405,8 +441,8 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await recordFailure(id, message);
-    return { ran: true, reason: "threw", results };
+    const retryable = await recordFailure(id, message);
+    return { ran: true, reason: "threw", results, needsRetry: retryable };
   }
 
   if (!results.every((r) => r.success)) {
@@ -415,8 +451,13 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
       .map((r) => `${r.paymentId}: ${r.error}`)
       .join("; ");
     console.error(`[Recording] Recording failed: ${message}`);
-    await recordFailure(id, message);
-    return { ran: true, reason: "partial_failure", results };
+    const retryable = await recordFailure(id, message);
+    return {
+      ran: true,
+      reason: "partial_failure",
+      results,
+      needsRetry: retryable,
+    };
   }
 
   // Every line is receipted. This write is what makes the row terminal, and
@@ -440,7 +481,14 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
         "duplicate them.",
       error instanceof Error ? error.message : error,
     );
-    return { ran: true, reason: "status_write_failed", results };
+    // The row is left in `recording`, so the stale-claim reclaim is what picks
+    // it up. Retrying the delivery would only hit `in_progress` until then.
+    return {
+      ran: true,
+      reason: "status_write_failed",
+      results,
+      needsRetry: false,
+    };
   }
 
   console.log(`[Recording] Recorded all payments for ${row.cartToken}`);
@@ -448,5 +496,5 @@ export async function runRecording(id: bigint): Promise<RecordingOutcome> {
   // Outside the run's failure handling entirely. Rails' path (b).
   await postOrderIfEligible(recorded);
 
-  return { ran: true, reason: "recorded", results };
+  return { ran: true, reason: "recorded", results, needsRetry: false };
 }

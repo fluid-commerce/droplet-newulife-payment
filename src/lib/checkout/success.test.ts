@@ -75,10 +75,21 @@ function ledgerRow(overrides: Record<string, unknown> = {}) {
     recordedAt: null,
     orderPostedAt: null,
     checkoutClaimedAt: null,
+    fluidPaymentUuid: null,
+    recordingClaimedAt: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-01T00:00:00Z"),
     ...overrides,
   };
+}
+
+let current: ReturnType<typeof ledgerRow>;
+
+/** Sets the row `claimCheckout` will read and lock. */
+function setLedgerRow(row: ReturnType<typeof ledgerRow>) {
+  current = row;
+  mockPrisma.moolaPayment.findUnique.mockResolvedValue(row);
+  mockTx.moolaPayment.findUniqueOrThrow.mockResolvedValue(row);
 }
 
 const checkoutResponse = {
@@ -97,16 +108,21 @@ beforeEach(() => {
     async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
   );
   mockTx.$queryRaw.mockResolvedValue([{ id: 1n }]);
-  mockPrisma.moolaPayment.findUnique.mockResolvedValue(ledgerRow());
-  mockTx.moolaPayment.findUniqueOrThrow.mockResolvedValue(ledgerRow());
-  mockTx.moolaPayment.update.mockImplementation(
-    async ({ where, data }: { where: { id: bigint }; data: object }) =>
-      ledgerRow({ id: where.id, ...data }),
-  );
-  mockPrisma.moolaPayment.update.mockImplementation(
-    async ({ where, data }: { where: { id: bigint }; data: object }) =>
-      ledgerRow({ id: where.id, ...data }),
-  );
+  current = ledgerRow();
+  mockPrisma.moolaPayment.findUnique.mockResolvedValue(current);
+  mockTx.moolaPayment.findUniqueOrThrow.mockResolvedValue(current);
+  // Both update mocks merge onto the row the test set, not onto the default
+  // fixture. Rebuilding from the default silently resets every field the test
+  // configured — which is exactly the field each of these tests is about.
+  const merge = async ({
+    where,
+    data,
+  }: {
+    where: { id: bigint };
+    data: object;
+  }) => ({ ...current, id: where.id, ...data });
+  mockTx.moolaPayment.update.mockImplementation(merge);
+  mockPrisma.moolaPayment.update.mockImplementation(merge);
 
   createPayment.mockResolvedValue({ payment: { uuid: "pay_uuid" } });
   checkoutCart.mockResolvedValue(checkoutResponse);
@@ -167,7 +183,7 @@ describe("completeCheckout — the money calls", () => {
 describe("completeCheckout — replay", () => {
   it("REPLAYS a cart that already has a Fluid order instead of checking out again", async () => {
     // The refresh case. Rails re-ran both irreversible calls on every load.
-    mockTx.moolaPayment.findUniqueOrThrow.mockResolvedValue(
+    setLedgerRow(
       ledgerRow({
         fluidOrderId: "900",
         fluidWebhookPayload: checkoutResponse,
@@ -190,7 +206,7 @@ describe("completeCheckout — replay", () => {
 
   it("refuses a second checkout while one is in flight", async () => {
     // The double-click / two-tabs case.
-    mockTx.moolaPayment.findUniqueOrThrow.mockResolvedValue(
+    setLedgerRow(
       ledgerRow({ checkoutClaimedAt: new Date() }),
     );
 
@@ -205,7 +221,7 @@ describe("completeCheckout — replay", () => {
   });
 
   it("lets a claim older than the TTL be retaken", async () => {
-    mockTx.moolaPayment.findUniqueOrThrow.mockResolvedValue(
+    setLedgerRow(
       ledgerRow({
         checkoutClaimedAt: new Date(Date.now() - CHECKOUT_CLAIM_TTL_MS - 1000),
       }),
@@ -234,10 +250,55 @@ describe("completeCheckout — replay", () => {
     });
 
     expect(outcome.kind).toBe("back_to_checkout");
-    const released = mockTx.moolaPayment.update.mock.calls.some(
-      (call) => call[0].data.checkoutClaimedAt === null,
+    // Checked on BOTH clients: a release through the non-transactional client
+    // would be just as much of a release.
+    const releasedAnywhere = [
+      ...mockTx.moolaPayment.update.mock.calls,
+      ...mockPrisma.moolaPayment.update.mock.calls,
+    ].some((call) => call[0].data.checkoutClaimedAt === null);
+    expect(releasedAnywhere).toBe(false);
+  });
+
+  it("PERSISTS the Fluid payment uuid before checking the cart out", async () => {
+    // The claim expires — it has to, or a first attempt that failed before
+    // creating anything would wedge a cart the shopper has already paid for.
+    // This is what stops that expiry turning into a second Fluid payment.
+    await completeCheckout({
+      cartToken: "cart_1",
+      paymentAccountId: "223",
+      status: "SUCCESS",
+    });
+
+    const uuidWriteIndex = mockPrisma.moolaPayment.update.mock.calls.findIndex(
+      (call) => call[0].data.fluidPaymentUuid === "pay_uuid",
     );
-    expect(released).toBe(false);
+    expect(uuidWriteIndex).toBeGreaterThanOrEqual(0);
+    // Written before the checkout call, not after it.
+    expect(checkoutCart.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockPrisma.moolaPayment.update.mock.invocationCallOrder[uuidWriteIndex],
+    );
+  });
+
+  it("REUSES an existing Fluid payment uuid instead of creating a second payment", async () => {
+    setLedgerRow(
+      ledgerRow({
+        fluidPaymentUuid: "pay_from_a_previous_attempt",
+        checkoutClaimedAt: new Date(Date.now() - CHECKOUT_CLAIM_TTL_MS - 1000),
+      }),
+    );
+
+    const outcome = await completeCheckout({
+      cartToken: "cart_1",
+      paymentAccountId: "223",
+      status: "SUCCESS",
+    });
+
+    expect(outcome.kind).toBe("confirmed");
+    expect(createPayment).not.toHaveBeenCalled();
+    expect(checkoutCart).toHaveBeenCalledWith(
+      "cart_1",
+      "pay_from_a_previous_attempt",
+    );
   });
 });
 

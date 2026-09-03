@@ -1,7 +1,7 @@
 # Cutting the NewULife payment droplet over from Rails to Next
 
 Both apps read the same database — the Next app maps onto the Rails tables with
-`@@map`, and there is no data migration. Three tables are ADDED by Rails
+`@@map`, and there is no data migration. Two tables and three columns are ADDED by Rails
 migrations in this PR; nothing existing is reshaped.
 
 **Read §1 before anything else. This droplet is not zallevo. Repointing the one
@@ -122,10 +122,24 @@ risk for a checkout outage, and that is not a trade to make blind inside a
 migration. It needs a uPayments order-status lookup, or a deliberate decision to
 drive checkout from ③ instead.
 
-What the port DOES fix is replay: `moola_payments.checkout_claimed_at` is taken
-in a short transaction before either Fluid call, and released only by recording
-the resulting `fluid_order_id`. A refresh, a back-button or a second tab now
-replays the stored confirmation url instead of creating a second order.
+What the port DOES fix is replay, with two of the three columns migration
+`20260411000003` adds:
+
+- `checkout_claimed_at` is taken in a short transaction before either Fluid
+  call. A refresh, a back-button or a second tab is refused while it is held,
+  and once `fluid_order_id` is recorded the route replays the stored
+  confirmation url instead of calling Fluid at all.
+- `fluid_payment_uuid` is persisted the moment Fluid issues it, BEFORE the
+  checkout call. The claim has to expire — a first attempt that failed before
+  creating anything would otherwise wedge a cart the shopper has already paid
+  for — and without this column that expiry would only DELAY a duplicate
+  payment rather than prevent one. A retry after expiry reuses the uuid.
+
+What is still open, and is part of this blocker rather than separate from it: a
+`checkoutCart` call that created the order and whose response was lost. The
+retry calls `checkoutCart` again with the SAME payment uuid, which is the best
+this droplet can do without an idempotency key or a cart-status lookup on
+Fluid's side. Neither is known to exist. Establish one before this leg moves.
 
 **B2. `MOOLA_WEBHOOK_SECRET` must be set, on both sides, before leg ③ moves.**
 Rails verifies the Moola signature only `if: :signature_verification_enabled?`,
@@ -362,14 +376,27 @@ Prisma reads the same values ActiveRecord does. Worth stating because where a
 droplet does encrypt, Prisma reads the base64 envelope and the droplet then sees
 every company as unconfigured — no error, no exception.
 
-**There is no queue.** The Next app runs its handlers inline and claims work with
-a PostgreSQL row lock; `moola_payments.status` IS the claim. This is deliberate:
-Rails' Solid Queue lives in the same database, so `status -> :recording` and the
-job enqueue committed together, and an external queue (Redis, Cloud Tasks) would
-silently break that — the row can be marked `recording` with no job enqueued, or
-the job enqueued and the row rolled back. Removing the enqueue removes the pair.
-An abandoned claim is reclaimed after 15 minutes, which is only safe because of
-the receipts.
+**There is no queue, and the DELIVERY is the retry.** The Next app runs its
+handlers inline and claims work with a PostgreSQL row lock;
+`moola_payments.status` IS the claim. This is deliberate: Rails' Solid Queue
+lives in the same database, so `status -> :recording` and the job enqueue
+committed together, and an external queue (Redis, Cloud Tasks) would silently
+break that — the row can be marked `recording` with no job enqueued, or the job
+enqueued and the row rolled back. Removing the enqueue removes the pair.
+
+Two consequences follow, and both are load-bearing:
+
+- Rails retried the recording job up to five times. Here a recording run that
+  fails transiently makes the route answer **5xx**, so Moola or Fluid re-sends
+  and the re-delivery re-drives the run. Expect to see 503s from
+  `/webhooks/moola/p2m` during a ByDesign outage; that is the retry working, not
+  a droplet fault. It stops after `MAX_RECORDING_ATTEMPTS`, when the row becomes
+  `failed` and needs an operator.
+- An abandoned claim (process killed mid-run) is reclaimed after 15 minutes,
+  measured from `recording_claimed_at` — its own column, because an inbound
+  webhook writes to the row while a run holds it and keying the expiry on
+  `updated_at` would push it out forever. Reclaiming is safe only because of the
+  receipts.
 
 ---
 
@@ -385,3 +412,10 @@ the receipts.
 - The Rails app is untouched apart from three additive migrations, `db/schema.rb`,
   the yarn→pnpm switch in `ci.yml`, `vite.config.js`, and the deletion of a
   tracked (empty) `.env`.
+- Cart tokens are still written to logs, as they are in Rails. Given B1 that
+  makes log access equivalent to checkout-forgery access. Closing B1 closes
+  that too; until then, treat this droplet's logs as sensitive.
+- The Prisma schema annotates every mapped string as `@db.VarChar(255)`, so
+  `prisma db push` would be a no-op rather than proposing `varchar -> text` on
+  every column of a live payments table. That is belt-and-braces: the deploy
+  runs no Prisma migration at all.

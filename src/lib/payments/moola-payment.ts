@@ -168,8 +168,26 @@ export function stateOf(row: MoolaPayment): LedgerState {
  *
  * 15 minutes is comfortably longer than the worst case for one run: ByDesign
  * calls carry a 30s timeout and a cart has a handful of payment lines.
+ *
+ * Measured from `recording_claimed_at`, NOT from `updated_at`. An inbound
+ * webhook legitimately writes to the row while a run holds it — merging payment
+ * details — and keying the expiry on `updated_at` would let those writes push an
+ * abandoned claim's expiry out indefinitely, so the reclaim would never fire.
  */
 export const STALE_RECORDING_CLAIM_MS = 15 * 60 * 1000;
+
+/** True when a `recording` claim has been held past the threshold. */
+export function isStaleRecordingClaim(
+  row: Pick<MoolaPayment, "status" | "recordingClaimedAt">,
+  now: Date = new Date(),
+): boolean {
+  if (row.status !== MOOLA_PAYMENT_STATUS.recording) return false;
+  // A claim with no timestamp predates this column. Treat it as stale: the
+  // receipts make the re-run safe, and the alternative is a row nothing ever
+  // picks up again.
+  if (!row.recordingClaimedAt) return true;
+  return now.getTime() - row.recordingClaimedAt.getTime() >= STALE_RECORDING_CLAIM_MS;
+}
 
 export interface ClaimResult {
   claimed: boolean;
@@ -225,13 +243,15 @@ export async function claimForRecording(
     }
 
     if (row.status === MOOLA_PAYMENT_STATUS.recording) {
-      const heldFor = now.getTime() - row.updatedAt.getTime();
-      if (heldFor < STALE_RECORDING_CLAIM_MS) {
+      if (!isStaleRecordingClaim(row, now)) {
         return { claimed: false, reason: "in_progress" as const, row };
       }
       const reclaimed = await tx.moolaPayment.update({
         where: { id },
-        data: { status: MOOLA_PAYMENT_STATUS.recording },
+        data: {
+          status: MOOLA_PAYMENT_STATUS.recording,
+          recordingClaimedAt: now,
+        },
       });
       return {
         claimed: true,
@@ -246,10 +266,29 @@ export async function claimForRecording(
 
     const claimedRow = await tx.moolaPayment.update({
       where: { id },
-      data: { status: MOOLA_PAYMENT_STATUS.recording },
+      data: {
+        status: MOOLA_PAYMENT_STATUS.recording,
+        recordingClaimedAt: now,
+      },
     });
     return { claimed: true, reason: "claimed" as const, row: claimedRow };
   });
+}
+
+/**
+ * True when this row should be handed to `runRecording`.
+ *
+ * Two cases, not one. The obvious one is a row that has just become `matched`.
+ * The second is a row stuck in `recording` because the run that claimed it
+ * died: nothing else would ever pick it up, since `determineStatus` preserves
+ * `recording` and `readyToRecord` is false for it. `claimForRecording` decides
+ * whether the claim is actually stale, so a live run is left alone.
+ */
+export function shouldDriveRecording(
+  row: MoolaPayment,
+  now: Date = new Date(),
+): boolean {
+  return readyToRecord(stateOf(row)) || isStaleRecordingClaim(row, now);
 }
 
 /**

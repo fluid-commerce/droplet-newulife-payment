@@ -33,8 +33,7 @@ import {
   extractCartToken,
   formatInvoiceNumber,
   paymentDetailsOf,
-  readyToRecord,
-  stateOf,
+  shouldDriveRecording,
 } from "./moola-payment";
 import { isTerminal, statusName, type PaymentDetail } from "./types";
 
@@ -241,6 +240,16 @@ export interface MoolaWebhookOutcome {
     | "terminal_skipped"
     | "no_card_details";
   recordingRan?: boolean;
+  /**
+   * A recording run was attempted, did not finish, and the row can be retried.
+   *
+   * The route turns this into a 5xx so Moola re-delivers. That re-delivery IS
+   * the retry: Rails had `retry_on StandardError, attempts: 5` on the recording
+   * job, and this app has no queue to retry from, so the delivery is what
+   * carries it. Safe only because `bydesign_payment_receipts` makes a re-run
+   * idempotent — otherwise this would re-Save the lines that already landed.
+   */
+  recordingNeedsRetry?: boolean;
 }
 
 /**
@@ -302,12 +311,14 @@ export async function processMoolaWebhook(
   // Rails enqueued a Solid Queue job here. This app drives the run directly —
   // see the note at the top of ./bydesign-recording.ts.
   let recordingRan = false;
-  if (readyToRecord(stateOf(updated))) {
+  let recordingNeedsRetry = false;
+  if (shouldDriveRecording(updated)) {
     const outcome = await runRecording(updated.id);
     recordingRan = outcome.ran;
+    recordingNeedsRetry = outcome.needsRetry;
   }
 
-  return { handled: true, reason: "processed", recordingRan };
+  return { handled: true, reason: "processed", recordingRan, recordingNeedsRetry };
 }
 
 /** Rails: `update_payment_record`, past the terminal guard. */

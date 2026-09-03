@@ -76,6 +76,8 @@ function ledgerRow(overrides: Record<string, unknown> = {}) {
     recordedAt: null,
     orderPostedAt: null,
     checkoutClaimedAt: null,
+    fluidPaymentUuid: null,
+    recordingClaimedAt: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-01T00:00:00Z"),
     ...overrides,
@@ -117,11 +119,26 @@ describe("recordPaymentOnce — the receipt is the idempotency key", () => {
     billingAddress: {},
   };
 
-  it("Saves and then writes the receipt", async () => {
+  it("Saves and THEN writes the receipt, in that order", async () => {
+    // The order is the safety property, not just the fact that both happen.
+    // Receipt-then-Save fails towards a payment that is never recorded and that
+    // nothing retries; Save-then-receipt fails towards a duplicate, which is
+    // the direction the whole design is arranged to avoid — so the ordering
+    // has to be asserted, not assumed.
+    const order: string[] = [];
+    recordPaymentMock.mockImplementation(async () => {
+      order.push("save");
+      return { success: true, response: {} };
+    });
+    mockPrisma.bydesignPaymentReceipt.create.mockImplementation(async () => {
+      order.push("receipt");
+      return {};
+    });
+
     const result = await recordPaymentOnce({ row: ledgerRow(), ...args });
 
     expect(result).toMatchObject({ paymentId: "PAY_A", success: true });
-    expect(recordPaymentMock).toHaveBeenCalledOnce();
+    expect(order).toEqual(["save", "receipt"]);
     expect(mockPrisma.bydesignPaymentReceipt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         bydesignOrderId: "12345",
@@ -234,7 +251,30 @@ describe("runRecording — the claim", () => {
     mockTx.moolaPayment.findUnique.mockResolvedValue(
       ledgerRow({
         status: MOOLA_PAYMENT_STATUS.recording,
-        updatedAt: new Date(),
+        recordingClaimedAt: new Date(),
+      }),
+    );
+
+    const outcome = await runRecording(1n);
+
+    expect(outcome).toMatchObject({ reason: "in_progress" });
+    expect(recordPaymentMock).not.toHaveBeenCalled();
+    // Worth coming back for, unlike terminal/not-found/not-ready — another run
+    // holds it right now.
+    expect(outcome.needsRetry).toBe(true);
+  });
+
+  it("does NOT reclaim on the strength of a stale updated_at alone", async () => {
+    // The expiry keys on `recording_claimed_at`, not `updated_at`. An inbound
+    // webhook writes to the row while a run holds it (merging payment details),
+    // and keying on `updated_at` would let those writes push an abandoned
+    // claim's expiry out forever — or, the other way round, let a quiet-but-live
+    // run be reclaimed underneath itself.
+    mockTx.moolaPayment.findUnique.mockResolvedValue(
+      ledgerRow({
+        status: MOOLA_PAYMENT_STATUS.recording,
+        updatedAt: new Date(Date.now() - 60 * 60 * 1000),
+        recordingClaimedAt: new Date(),
       }),
     );
 
@@ -248,7 +288,7 @@ describe("runRecording — the claim", () => {
     mockTx.moolaPayment.findUnique.mockResolvedValue(
       ledgerRow({
         status: MOOLA_PAYMENT_STATUS.recording,
-        updatedAt: new Date(Date.now() - 60 * 60 * 1000),
+        recordingClaimedAt: new Date(Date.now() - 60 * 60 * 1000),
       }),
     );
 
@@ -303,6 +343,10 @@ describe("runRecording — failure never regresses a terminal row", () => {
     const failureWrite = mockTx.moolaPayment.update.mock.calls.at(-1)![0];
     expect(failureWrite.data.status).toBe(MOOLA_PAYMENT_STATUS.matched);
     expect(failureWrite.data.bydesignRecordingAttempts).toBe(1);
+    // The caller turns this into a 5xx so the delivery is re-sent. Without it
+    // the row would sit in `matched` forever behind an already-sent 202 —
+    // there is no queue to come back for it.
+    expect(outcome.needsRetry).toBe(true);
   });
 
   it("gives up into `failed` once the attempt limit is reached", async () => {
@@ -311,10 +355,12 @@ describe("runRecording — failure never regresses a terminal row", () => {
       .mockResolvedValue(ledgerRow({ bydesignRecordingAttempts: 4 }));
     recordPaymentMock.mockResolvedValue({ success: false, error: "nope" });
 
-    await runRecording(1n);
+    const outcome = await runRecording(1n);
 
     const failureWrite = mockTx.moolaPayment.update.mock.calls.at(-1)![0];
     expect(failureWrite.data.status).toBe(MOOLA_PAYMENT_STATUS.failed);
+    // Terminal: re-delivering achieves nothing, so stop asking for a retry.
+    expect(outcome.needsRetry).toBe(false);
   });
 
   it("will NOT move a row out of `recorded` when a failure is written", async () => {

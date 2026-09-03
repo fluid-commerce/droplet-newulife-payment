@@ -16,8 +16,15 @@ const mockPrisma = vi.hoisted(() => ({
   },
 }));
 
+type RecordingOutcome = {
+  ran: boolean;
+  reason: string;
+  results: unknown[];
+  needsRetry: boolean;
+};
+
 const runRecordingMock = vi.hoisted(() =>
-  vi.fn(async () => ({ ran: true, reason: "recorded", results: [] })),
+  vi.fn<(id: bigint) => Promise<RecordingOutcome>>(),
 );
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma, default: mockPrisma }));
@@ -54,6 +61,8 @@ function ledgerRow(overrides: Record<string, unknown> = {}) {
     recordedAt: null,
     orderPostedAt: null,
     checkoutClaimedAt: null,
+    fluidPaymentUuid: null,
+    recordingClaimedAt: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-01T00:00:00Z"),
     ...overrides,
@@ -78,17 +87,41 @@ const p2mBody = {
   ],
 };
 
+/**
+ * Sets the row the code under test will read, and makes `update` return that
+ * SAME row with the patch applied.
+ *
+ * Not a convenience: an update mock that rebuilds from the default fixture
+ * silently resets every field the test set, so a test about `recording_claimed_at`
+ * would assert against a row where it is null again.
+ */
+let current: ReturnType<typeof ledgerRow>;
+function setLedgerRow(row: ReturnType<typeof ledgerRow>) {
+  current = row;
+  mockPrisma.moolaPayment.findUnique.mockResolvedValue(row);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  current = ledgerRow();
+  runRecordingMock.mockResolvedValue({
+    ran: true,
+    reason: "recorded",
+    results: [],
+    needsRetry: false,
+  });
   mockPrisma.moolaPayment.update.mockImplementation(
-    async ({ where, data }: { where: { id: bigint }; data: object }) =>
-      ledgerRow({ id: where.id, ...data }),
+    async ({ where, data }: { where: { id: bigint }; data: object }) => ({
+      ...current,
+      id: where.id,
+      ...data,
+    }),
   );
 });
 
 describe("processMoolaWebhook — at-least-once delivery", () => {
   it("processes a first delivery and drives the recording once the row is ready", async () => {
-    mockPrisma.moolaPayment.findUnique.mockResolvedValue(ledgerRow());
+    setLedgerRow(ledgerRow());
 
     const outcome = await processMoolaWebhook(p2mBody);
 
@@ -108,7 +141,7 @@ describe("processMoolaWebhook — at-least-once delivery", () => {
     // payments were already in ByDesign, so the stored ledger drifted from what
     // was actually sent — and before 6fe8ea2 it also regressed the status and
     // recorded the whole set again.
-    mockPrisma.moolaPayment.findUnique.mockResolvedValue(
+    setLedgerRow(
       ledgerRow({
         status: MOOLA_PAYMENT_STATUS.recorded,
         recordedAt: new Date(),
@@ -124,7 +157,7 @@ describe("processMoolaWebhook — at-least-once delivery", () => {
   });
 
   it("does NOT touch a row that is already `failed`", async () => {
-    mockPrisma.moolaPayment.findUnique.mockResolvedValue(
+    setLedgerRow(
       ledgerRow({
         status: MOOLA_PAYMENT_STATUS.failed,
         bydesignRecordingAttempts: 5,
@@ -138,7 +171,7 @@ describe("processMoolaWebhook — at-least-once delivery", () => {
   });
 
   it("guards the CARD webhook branch too, not just the payment branch", async () => {
-    mockPrisma.moolaPayment.findUnique.mockResolvedValue(
+    setLedgerRow(
       ledgerRow({ status: MOOLA_PAYMENT_STATUS.recorded }),
     );
 
@@ -166,6 +199,51 @@ describe("processMoolaWebhook — at-least-once delivery", () => {
     expect(mockPrisma.moolaPayment.create).toHaveBeenCalledWith({
       data: { cartToken: "cart_1", invoiceNumber: "NULF-CT:cart_1" },
     });
+  });
+
+  it("picks up a row abandoned in `recording`, which nothing else would", async () => {
+    // `determineStatus` preserves `recording` and `readyToRecord` is false for
+    // it, so keying the trigger on readiness alone left a row whose run died
+    // sitting there forever — the stale-claim reclaim was unreachable.
+    setLedgerRow(
+      ledgerRow({
+        status: MOOLA_PAYMENT_STATUS.recording,
+        recordingClaimedAt: new Date(Date.now() - 60 * 60 * 1000),
+        paymentDetails: p2mBody.payment_details,
+      }),
+    );
+
+    await processMoolaWebhook(p2mBody);
+
+    expect(runRecordingMock).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a LIVE recording claim alone", async () => {
+    setLedgerRow(
+      ledgerRow({
+        status: MOOLA_PAYMENT_STATUS.recording,
+        recordingClaimedAt: new Date(),
+        paymentDetails: p2mBody.payment_details,
+      }),
+    );
+
+    await processMoolaWebhook(p2mBody);
+
+    expect(runRecordingMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a retryable recording failure so the caller can ask for a re-delivery", async () => {
+    setLedgerRow(ledgerRow());
+    runRecordingMock.mockResolvedValue({
+      ran: true,
+      reason: "partial_failure",
+      results: [],
+      needsRetry: true,
+    });
+
+    const outcome = await processMoolaWebhook(p2mBody);
+
+    expect(outcome.recordingNeedsRetry).toBe(true);
   });
 
   it("refuses a transaction type it does not handle", async () => {

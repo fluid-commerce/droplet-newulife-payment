@@ -242,17 +242,20 @@ describe("amounts", () => {
 });
 
 describe("paymentDate", () => {
-  it("reads completed_at as milliseconds since the epoch", () => {
+  it("reads completed_at as milliseconds and emits SECOND precision", () => {
+    // Ruby's `Time#iso8601` emits `...41Z`; JavaScript's `toISOString()` emits
+    // `...41.000Z`. Every ByDesign Save payload would otherwise carry a string
+    // the Rails app never sends.
     expect(paymentDate({ completed_at: "1767187441840" })).toBe(
-      new Date(1767187441 * 1000).toISOString(),
+      "2025-12-31T13:24:01Z",
     );
   });
 
-  it("falls back to now for a missing or unusable value", () => {
-    const now = new Date("2026-05-05T00:00:00.000Z");
-    expect(paymentDate({}, now)).toBe(now.toISOString());
+  it("falls back to now, also without milliseconds", () => {
+    const now = new Date("2026-05-05T00:00:00.123Z");
+    expect(paymentDate({}, now)).toBe("2026-05-05T00:00:00Z");
     expect(paymentDate({ completed_at: "not a number" }, now)).toBe(
-      now.toISOString(),
+      "2026-05-05T00:00:00Z",
     );
   });
 });

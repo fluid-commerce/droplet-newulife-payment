@@ -137,6 +137,22 @@ export async function POST(request: Request): Promise<Response> {
       payload as Record<string, unknown>,
     );
     console.log(`[MoolaWebhook] ${outcome.reason}`);
+
+    // THE DELIVERY IS THE RETRY. This app has no queue, so a recording run that
+    // failed transiently has nothing to come back for it — Rails had
+    // `retry_on StandardError, attempts: 5` on the job and this does not.
+    // Answering 5xx makes Moola re-deliver, which re-enters the same code path
+    // and re-drives the run. Safe only because `bydesign_payment_receipts`
+    // makes a re-run idempotent; without it this would re-Save the lines that
+    // already landed. Bounded by MAX_RECORDING_ATTEMPTS, after which the row is
+    // terminal and `recordingNeedsRetry` is false.
+    if (outcome.recordingNeedsRetry) {
+      console.error(
+        "[MoolaWebhook] Recording did not complete; answering 5xx so Moola re-delivers",
+      );
+      return new NextResponse(null, { status: 503 });
+    }
+
     return new NextResponse(null, { status: 202 });
   } catch (error) {
     console.error(

@@ -14,6 +14,12 @@
 //     stores an integer. It stays an `Int` — see MOOLA_PAYMENT_STATUS in
 //     src/lib/payments/types.ts. A Prisma `enum` would be prettier and would
 //     require a destructive column type change on a live payments table.
+//   * String COLUMN TYPES are annotated. Rails' `t.string` is `varchar(255)`
+//     and an unannotated Prisma `String` is `text`, so without `@db.VarChar(255)`
+//     a `prisma db push` would propose a type change on every string column of a
+//     live payments table. The additive tables created by this PR's migrations
+//     use `t.text` on purpose and are therefore left unannotated — that is a
+//     real difference in the database, not an inconsistency here.
 //   * Nullability and index UNIQUENESS mirror db/schema.rb exactly. The rule
 //     comes from a real defect: declaring @unique where Rails has a plain index
 //     makes `prisma db push` try to add a constraint to a live table.
@@ -54,16 +60,16 @@ datasource db {
 model Company {
   id BigInt @id @default(autoincrement())
 
-  fluidShop                String  @map("fluid_shop")
-  authenticationToken      String  @unique @map("authentication_token")
-  name                     String
+  fluidShop                String  @map("fluid_shop") @db.VarChar(255)
+  authenticationToken      String  @unique @map("authentication_token") @db.VarChar(255)
+  name                     String  @db.VarChar(255)
   settings                 Json?   @default("{}")
-  webhookVerificationToken String? @map("webhook_verification_token")
+  webhookVerificationToken String? @map("webhook_verification_token") @db.VarChar(255)
   /// Plain index in Rails, NOT unique. findFirst only.
   fluidCompanyId           BigInt  @map("fluid_company_id")
-  serviceCompanyId         String? @map("service_company_id")
+  serviceCompanyId         String? @map("service_company_id") @db.VarChar(255)
   /// THE DROPLET's uuid, identical on every installation row. Never a tenant key.
-  companyDropletUuid       String? @map("company_droplet_uuid")
+  companyDropletUuid       String? @map("company_droplet_uuid") @db.VarChar(255)
 
   // Nullable, matching Rails. `t.boolean "active", default: false` has a
   // default but no NOT NULL, so a row written outside ActiveRecord can hold
@@ -77,7 +83,7 @@ model Company {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   /// The only genuinely per-installation identifier. Tenant resolution keys on this.
-  dropletInstallationUuid String? @map("droplet_installation_uuid")
+  dropletInstallationUuid String? @map("droplet_installation_uuid") @db.VarChar(255)
 
   events Event[]
 
@@ -95,8 +101,8 @@ model Company {
 model Event {
   id BigInt @id @default(autoincrement())
 
-  identifier String?
-  name       String?
+  identifier String?   @db.VarChar(255)
+  name       String?   @db.VarChar(255)
   payload    Json?     @default("{}")
   timestamp  DateTime?
   /// ActiveRecord enum: 0 pending, 1 processed, 2 failed.
@@ -127,15 +133,15 @@ model MoolaPayment {
   id BigInt @id @default(autoincrement())
 
   /// The join key from every direction, and the only unique one.
-  cartToken String @unique @map("cart_token")
+  cartToken String @unique @map("cart_token") @db.VarChar(255)
   /// `NULF-CT:{cart_token}`. Functionally 1:1 with cartToken, NOT unique in the schema.
-  invoiceNumber String @map("invoice_number")
+  invoiceNumber String @map("invoice_number") @db.VarChar(255)
 
-  fluidOrderId       String? @map("fluid_order_id")
-  bydesignOrderId    String? @map("bydesign_order_id")
-  moolaTransactionId String? @map("moola_transaction_id")
-  kycStatus          String? @map("kyc_status")
-  transactionType    String? @map("transaction_type")
+  fluidOrderId       String? @map("fluid_order_id") @db.VarChar(255)
+  bydesignOrderId    String? @map("bydesign_order_id") @db.VarChar(255)
+  moolaTransactionId String? @map("moola_transaction_id") @db.VarChar(255)
+  kycStatus          String? @map("kyc_status") @db.VarChar(255)
+  transactionType    String? @map("transaction_type") @db.VarChar(255)
 
   /// Array of payment lines from the Moola webhook. Keyed by `id` when merged.
   paymentDetails      Json? @default("[]") @map("payment_details")
@@ -147,6 +153,7 @@ model MoolaPayment {
   status                    Int  @default(0)
   bydesignRecordingAttempts Int? @default(0) @map("bydesign_recording_attempts")
 
+  /// Rails `t.text`, so no length annotation.
   lastError String? @map("last_error")
 
   matchedAt     DateTime? @map("matched_at")
@@ -157,9 +164,22 @@ model MoolaPayment {
   ///
   /// The uPayments return lands as a browser GET that the shopper can refresh.
   /// Rails re-ran "create a Fluid payment, then check the cart out" on every
-  /// load. This column is taken in a short transaction before either call, so a
-  /// refresh or a double-click cannot produce a second Fluid payment.
+  /// load. This is taken in a short transaction before either call.
   checkoutClaimedAt DateTime? @map("checkout_claimed_at")
+
+  /// ADDITIVE. The Fluid payment uuid, persisted the moment it is known.
+  ///
+  /// A retry after a lost response REUSES it rather than creating a second Fluid
+  /// payment. Without it, holding the checkout claim only delays a duplicate
+  /// until the claim expires.
+  fluidPaymentUuid String? @map("fluid_payment_uuid") @db.VarChar(255)
+
+  /// ADDITIVE. When a ByDesign recording run took this row.
+  ///
+  /// Its own column rather than `updated_at`, because an inbound webhook writes
+  /// to the row while a run holds it — which would push an abandoned claim's
+  /// expiry out forever.
+  recordingClaimedAt DateTime? @map("recording_claimed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -212,8 +232,8 @@ model BydesignPaymentReceipt {
 model Setting {
   id BigInt @id @default(autoincrement())
 
-  name        String  @unique
-  description String?
+  name        String  @unique @db.VarChar(255)
+  description String? @db.VarChar(255)
   values      Json?   @default("{}")
   schema      Json
 
@@ -229,10 +249,10 @@ model Setting {
 model User {
   id BigInt @id @default(autoincrement())
 
-  email             String @unique @default("")
-  encryptedPassword String @default("") @map("encrypted_password")
+  email             String @unique @default("") @db.VarChar(255)
+  encryptedPassword String @default("") @map("encrypted_password") @db.VarChar(255)
 
-  resetPasswordToken  String?   @unique @map("reset_password_token")
+  resetPasswordToken  String?   @unique @map("reset_password_token") @db.VarChar(255)
   resetPasswordSentAt DateTime? @map("reset_password_sent_at")
   rememberCreatedAt   DateTime? @map("remember_created_at")
 
@@ -240,7 +260,7 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   /// Rails `t.string array: true` — a Postgres text[].
-  permissionSets String[] @default([]) @map("permission_sets")
+  permissionSets String[] @default([]) @map("permission_sets") @db.VarChar(255)
 
   @@map("users")
 }
@@ -252,8 +272,8 @@ model User {
 model Webhook {
   id BigInt @id @default(autoincrement())
 
-  resource String?
-  event    String?
+  resource String?  @db.VarChar(255)
+  event    String?  @db.VarChar(255)
   active   Boolean? @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")

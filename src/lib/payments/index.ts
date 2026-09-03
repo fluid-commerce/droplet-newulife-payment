@@ -27,6 +27,8 @@ export {
   jsonObjectOf,
   stateOf,
   claimForRecording,
+  isStaleRecordingClaim,
+  shouldDriveRecording,
   applyAndDetermineStatus,
   describeRow,
   STALE_RECORDING_CLAIM_MS,

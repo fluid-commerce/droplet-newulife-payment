@@ -93,6 +93,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_04_11_000003) do
     t.datetime "updated_at", null: false
     t.datetime "order_posted_at"
     t.datetime "checkout_claimed_at"
+    t.string "fluid_payment_uuid"
+    t.datetime "recording_claimed_at"
     t.index ["bydesign_order_id"], name: "index_moola_payments_on_bydesign_order_id"
     t.index ["cart_token"], name: "index_moola_payments_on_cart_token", unique: true
     t.index ["fluid_order_id"], name: "index_moola_payments_on_fluid_order_id"

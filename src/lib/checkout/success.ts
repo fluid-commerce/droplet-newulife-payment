@@ -36,6 +36,19 @@
  * confirmation URL, from the stored checkout response. A load that finds a
  * claim in flight is sent back to the Fluid checkout page, which is where the
  * shopper wants to be anyway.
+ *
+ * The claim expires, because a first attempt that failed BEFORE creating
+ * anything would otherwise wedge a cart the shopper has already paid for. That
+ * expiry is what makes `fluid_payment_uuid` necessary: the payment uuid is
+ * persisted the moment Fluid issues it, so a retry after the claim expires
+ * REUSES it instead of creating a second payment. Without that column, holding
+ * the claim would only delay a duplicate rather than prevent one.
+ *
+ * What is left, and is not closed here: a `checkoutCart` call that created the
+ * order and whose response was lost. A retry then calls `checkoutCart` again
+ * with the SAME payment uuid, which is the best this droplet can do without an
+ * idempotency key or a cart-status lookup on Fluid's side — neither of which
+ * this repository knows to exist. It is named in CUTOVER.md section 3.
  */
 
 import type { MoolaPayment, Prisma } from "@prisma/client";
@@ -270,22 +283,43 @@ export async function completeCheckout({
   const fluid = createFluidClient(api_key, base_url);
 
   try {
-    // IRREVERSIBLE. Creates the payment record in Fluid for the money uPayments
-    // has already taken.
-    const payment = await fluid.createPayment(paymentAccountId, {
-      cart_token: cartToken,
-      payment_method: { integration_class: "Droplet", source: "droplet" },
-    });
+    // REUSE a payment uuid this cart already has. A previous attempt got as far
+    // as creating the Fluid payment and then failed; creating a second one for
+    // money uPayments took once is the exact duplicate this column exists to
+    // prevent.
+    let paymentUuid = claim.row.fluidPaymentUuid ?? undefined;
 
-    const paymentUuid = payment.payment?.uuid;
-    if (!paymentUuid) {
-      // The claim is deliberately NOT released. Fluid may or may not have
-      // created the payment; a retry that creates a second one is worse than a
-      // shopper who has to come back.
-      console.error(
-        `[CheckoutSuccess] Fluid returned no payment uuid for cart ${cartToken}`,
+    if (paymentUuid) {
+      console.warn(
+        `[CheckoutSuccess] Reusing the existing Fluid payment for cart ${cartToken}; ` +
+          "a previous attempt created it and did not finish",
       );
-      return { kind: "back_to_checkout", reason: "no payment uuid" };
+    } else {
+      // IRREVERSIBLE. Creates the payment record in Fluid for the money
+      // uPayments has already taken.
+      const payment = await fluid.createPayment(paymentAccountId, {
+        cart_token: cartToken,
+        payment_method: { integration_class: "Droplet", source: "droplet" },
+      });
+
+      paymentUuid = payment.payment?.uuid;
+      if (!paymentUuid) {
+        // The claim is deliberately NOT released. Fluid may or may not have
+        // created the payment; a retry that creates a second one is worse than
+        // a shopper who has to come back.
+        console.error(
+          `[CheckoutSuccess] Fluid returned no payment uuid for cart ${cartToken}`,
+        );
+        return { kind: "back_to_checkout", reason: "no payment uuid" };
+      }
+
+      // Persisted BEFORE the checkout call, and in its own write. This is the
+      // whole point: if `checkoutCart` fails or its response is lost, the retry
+      // finds this uuid and does not create a second payment.
+      await prisma.moolaPayment.update({
+        where: { id: claim.row.id },
+        data: { fluidPaymentUuid: paymentUuid },
+      });
     }
 
     // IRREVERSIBLE. This is where the order comes into existence.
