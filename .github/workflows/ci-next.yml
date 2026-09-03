@@ -77,20 +77,33 @@ jobs:
       # server.js as ESM and kill the container on its first line — while this
       # job stayed green, because it never started one.
       #
-      # /api/health deliberately touches no database, so this needs no services.
+      # This proves three things, and deliberately not more: the process boots,
+      # it is still alive a few seconds later, and the webhook route exists.
+      # It does NOT prove the app works — /api/health touches no database (so
+      # this needs no services) and a 404 on a callback route is something Fluid
+      # turns into a silent neutral response, which is why route presence is
+      # asserted rather than assumed.
       - name: Boot the image and require it to serve
         run: |
           set -euo pipefail
+
+          cleanup() { docker rm -f next-boot >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
           docker run -d --name next-boot -p 3000:3000 \
             -e AUTH_SECRET=ci-boot-check-not-a-real-secret \
             -e AUTH_TRUST_HOST=true \
             droplet-newulife-payment-next:ci
 
+          ready=""
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; then
-              echo "container answered /api/health after ${i}s"
-              docker rm -f next-boot >/dev/null
-              exit 0
+            # --max-time bounds each attempt: without it a handler that accepts
+            # the connection and never answers hangs here until the job timeout,
+            # so the 30s budget would be fiction.
+            if curl -fsS --max-time 5 http://localhost:3000/api/health >/dev/null 2>&1; then
+              ready="yes"
+              echo "container answered /api/health after ~${i}s"
+              break
             fi
             if [ -z "$(docker ps -q -f name=next-boot)" ]; then
               echo "::error::the container exited before serving a request"
@@ -100,6 +113,31 @@ jobs:
             sleep 1
           done
 
-          echo "::error::container never answered /api/health within 30s"
-          docker logs next-boot
-          exit 1
+          if [ -z "$ready" ]; then
+            echo "::error::container never answered /api/health within 30s"
+            docker logs next-boot
+            exit 1
+          fi
+
+          # A process that answers once and then dies would have passed the loop
+          # above. Require it to still be serving a few seconds later.
+          sleep 5
+          if [ -z "$(docker ps -q -f name=next-boot)" ]; then
+            echo "::error::the container exited after its first response"
+            docker logs next-boot
+            exit 1
+          fi
+          curl -fsS --max-time 5 http://localhost:3000/api/health >/dev/null
+
+          # Route presence. Any status but 404 means the handler is mounted; the
+          # request is unsigned, so 400/401 is the expected healthy answer and
+          # asserting a specific one here would just pin the SDK's failure mode.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+            -X POST -H 'content-type: application/json' -d '{}' \
+            http://localhost:3000/api/webhooks)
+          if [ "$code" = "404" ]; then
+            echo "::error::/api/webhooks is not mounted in the built image"
+            docker logs next-boot
+            exit 1
+          fi
+          echo "/api/webhooks is mounted (unsigned POST answered $code)"
