@@ -50,6 +50,18 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nextjs:nodejs /app/src/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/src/.next/static ./src/.next/static
 
+# The standalone bundle carries a copy of the repo-root package.json, and this
+# repo is ESM (`"type": "module"`). Next's generated server.js is CommonJS, so
+# Node resolves that package.json, parses server.js as an ES module, and the
+# container dies immediately on `require is not defined in ES module scope`.
+#
+# `docker build` cannot catch this — building an image never runs it — which is
+# why the image was green in CI and dead on Cloud Run. ci-next.yml now boots the
+# container as well as building it.
+RUN node -e "const fs=require('fs');const f='./package.json';const p=JSON.parse(fs.readFileSync(f,'utf8'));p.type='commonjs';fs.writeFileSync(f,JSON.stringify(p,null,2));" \
+    && chown nextjs:nodejs ./package.json \
+    && node --check src/server.js
+
 USER 1001:1001
 
 EXPOSE 3000

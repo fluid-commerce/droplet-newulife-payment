@@ -71,3 +71,35 @@ jobs:
       - name: Build the Next image
         # Load rather than push: this only proves the Dockerfile is valid.
         run: docker build -f Dockerfile.next -t droplet-newulife-payment-next:ci .
+
+      # A built image is not a working image. The standalone bundle inherits
+      # this repo's `"type": "module"`, which made Node parse Next's CommonJS
+      # server.js as ESM and kill the container on its first line — while this
+      # job stayed green, because it never started one.
+      #
+      # /api/health deliberately touches no database, so this needs no services.
+      - name: Boot the image and require it to serve
+        run: |
+          set -euo pipefail
+          docker run -d --name next-boot -p 3000:3000 \
+            -e AUTH_SECRET=ci-boot-check-not-a-real-secret \
+            -e AUTH_TRUST_HOST=true \
+            droplet-newulife-payment-next:ci
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; then
+              echo "container answered /api/health after ${i}s"
+              docker rm -f next-boot >/dev/null
+              exit 0
+            fi
+            if [ -z "$(docker ps -q -f name=next-boot)" ]; then
+              echo "::error::the container exited before serving a request"
+              docker logs next-boot
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "::error::container never answered /api/health within 30s"
+          docker logs next-boot
+          exit 1
