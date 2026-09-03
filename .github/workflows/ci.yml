@@ -3,7 +3,7 @@ name: CI
 env:
   RUBY_VERSION: '3.4.2'
   NODE_VERSION: '23.8.0'
-  YARN_VERSION: '4.7.0'
+  PNPM_VERSION: '10.17.1'
 
 on:
   pull_request:
@@ -141,14 +141,18 @@ jobs:
       - name: Enable corepack
         run: corepack enable
 
-      - name: Prepare yarn
-        run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - name: Prepare pnpm
+        run: corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
 
+      # The root package.json is now the Next app's, and it also carries the
+      # Rails frontend's Vite dependencies. `build:vite` / `test:jest` are the
+      # Rails-side scripts; `build` and `test` belong to the Next app and run in
+      # ci-next.yml.
       - name: Install JavaScript dependencies
-        run: yarn install --immutable
+        run: pnpm install --frozen-lockfile
 
       - name: Build assets
-        run: yarn build
+        run: pnpm run build:vite
 
       - name: Build assets for test
         env:
@@ -156,7 +160,7 @@ jobs:
         run: bin/vite build
 
       - name: Run JavaScript tests
-        run: yarn test
+        run: pnpm run test:jest
 
       - name: Run Rails tests
         env:

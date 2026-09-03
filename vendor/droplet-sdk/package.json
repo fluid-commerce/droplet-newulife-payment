@@ -1,0 +1,27 @@
+{
+  "name": "@fluid-app/droplet-sdk",
+  "version": "0.1.0",
+  "description": "Vendored copy of the Fluid droplet SDK. See ./README.md before touching this directory.",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./next": {
+      "types": "./src/next.ts",
+      "default": "./src/next.ts"
+    },
+    "./prisma": {
+      "types": "./src/prisma.ts",
+      "default": "./src/prisma.ts"
+    },
+    "./schema/callback-registrations.prisma": "./schema/callback-registrations.prisma"
+  },
+  "files": [
+    "src",
+    "schema"
+  ]
+}

@@ -10,9 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_04_10_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_04_11_000003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "bydesign_payment_receipts", force: :cascade do |t|
+    t.text "bydesign_order_id", null: false
+    t.text "payment_detail_id", null: false
+    t.text "cart_token", null: false
+    t.datetime "recorded_at", null: false
+    t.jsonb "response", default: {}
+    t.datetime "created_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.datetime "updated_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.index ["bydesign_order_id", "payment_detail_id"], name: "index_bydesign_receipts_on_order_and_payment", unique: true
+    t.index ["cart_token"], name: "index_bydesign_payment_receipts_on_cart_token"
+  end
 
   create_table "companies", force: :cascade do |t|
     t.string "fluid_shop", null: false
@@ -49,6 +61,17 @@ ActiveRecord::Schema[8.0].define(version: 2026_04_10_000001) do
     t.index ["name"], name: "index_events_on_name"
   end
 
+  create_table "fluid_callback_registrations", primary_key: "uuid", id: :text, force: :cascade do |t|
+    t.text "dri", null: false
+    t.text "definition_name", null: false
+    t.text "token_digest", null: false
+    t.text "url", null: false
+    t.datetime "created_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.datetime "updated_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.index ["dri"], name: "index_fluid_callback_registrations_on_dri"
+    t.index ["token_digest"], name: "index_fluid_callback_registrations_on_token_digest", unique: true
+  end
+
   create_table "moola_payments", force: :cascade do |t|
     t.string "cart_token", null: false
     t.string "invoice_number", null: false
@@ -69,6 +92,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_04_10_000001) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.datetime "order_posted_at"
+    t.datetime "checkout_claimed_at"
     t.index ["bydesign_order_id"], name: "index_moola_payments_on_bydesign_order_id"
     t.index ["cart_token"], name: "index_moola_payments_on_cart_token", unique: true
     t.index ["fluid_order_id"], name: "index_moola_payments_on_fluid_order_id"

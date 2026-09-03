@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Matches the Rails admin layout's gradient panel. */
+.gradient-background {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}

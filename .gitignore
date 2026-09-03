@@ -54,3 +54,13 @@ node_modules
 # terraform files
 .terraform/
 .terraform.lock.hcl
+# Next.js (the Next app's project directory is src/ — see src/next.config.ts)
+/src/.next
+/.next
+/next-env.d.ts
+/src/next-env.d.ts
+*.tsbuildinfo
+/.turbo
+
+# The Rails app tracked an (empty) .env by accident. Never again.
+.env

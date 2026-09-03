@@ -1,0 +1,67 @@
+# Deploys the Next app to its own Cloud Run service.
+#
+# workflow_dispatch only, unlike deploy-production.yml (which deploys Rails on
+# every push to main). Deliberate: this service
+# takes no traffic until an installation's registrations are repointed at it, so
+# deploying it is safe — but that also means an automatic deploy on merge would
+# quietly move the thing a cutover is measured against. Cutovers are decided,
+# not triggered.
+name: deploy next
+
+on:
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: fluid-417204
+  CLUIDBUILD_FILE: cloudbuild-next.yml
+
+jobs:
+  cloudbuild:
+    name: build and deploy the Next service
+    runs-on: ubuntu-latest
+
+    steps:
+      # workflow_dispatch lets the caller choose ANY ref, and the deploy builds
+      # whatever that ref contains straight into the production project. The
+      # comparison happens in the `if:` expression and the ref is never
+      # interpolated into a shell command — a branch may legally be named
+      # `x";exit${IFS}0;#`, which inside a double-quoted `run:` would close the
+      # quote and turn the guard into a no-op.
+      #
+      # deploy-production.yml has no such guard. It is added here rather than
+      # left out for symmetry: the Rails service is the one currently serving
+      # traffic, so tightening its workflow is a separate change with its own
+      # blast radius.
+      - name: Refuse to deploy a ref other than main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Production deploys run from refs/heads/main only."
+          exit 1
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - id: "auth"
+        name: "Authenticate to Google Cloud"
+        uses: "google-github-actions/auth@v2"
+        with:
+          token_format: access_token
+          project_id: ${{ env.PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_SA_JSON }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: ">= 475.0.0"
+          skip_install: true
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Install grpcio and set environment variable
+        run: |
+          pip install grpcio
+          echo "CLOUDSDK_PYTHON_SITEPACKAGES=1" >> $GITHUB_ENV
+
+      - name: Submit Cloud Build
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          gcloud beta builds submit --config ${{ env.CLUIDBUILD_FILE }} --region=europe-west1 --substitutions=COMMIT_SHA=${GITHUB_SHA::7},_TIMESTAMP=$TIMESTAMP --project ${{ env.PROJECT_ID }}

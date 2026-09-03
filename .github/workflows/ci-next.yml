@@ -1,0 +1,73 @@
+name: CI (Next.js)
+
+# The Next.js app that will replace the Rails app. Runs alongside ci.yml, which
+# still covers the Rails side, until the follow-up PR removes Rails and this
+# becomes the only CI workflow.
+
+env:
+  NODE_VERSION: '22.x'
+  PNPM_VERSION: '10.17.1'
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  next:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # No registry auth is needed: the droplet SDK is a `link:` dependency on
+      # the vendored copy in ./vendor/droplet-sdk, because it is not published
+      # yet. See vendor/droplet-sdk/README.md.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Needed before typecheck and build: the generated client is what gives
+      # the Prisma models their types.
+      - name: Generate Prisma client
+        run: pnpm run db:generate
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm run test
+
+      # No DATABASE_URL: the build compiles route handlers without evaluating
+      # runtime environment. If this ever needs a live database, that is a bug
+      # in a module doing work at import time.
+      - name: Build
+        run: pnpm run build
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build the Next image
+        # Load rather than push: this only proves the Dockerfile is valid.
+        run: docker build -f Dockerfile.next -t droplet-newulife-payment-next:ci .

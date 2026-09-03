@@ -1,0 +1,289 @@
+// NewULife Payment droplet — Prisma schema
+//
+// This schema describes the SAME PostgreSQL database the Rails app owns
+// (db/schema.rb). Every model is mapped back to the Rails table and column
+// names with @@map / @map, so pointing this app at the existing production
+// database changes nothing about it. There is no data migration.
+//
+// Consequences of that, deliberate, not to be "tidied":
+//
+//   * Primary keys are `BigInt`, because Rails 8 creates `bigserial` ids. They
+//     surface in TypeScript as `bigint`; convert with `String(id)` before
+//     handing one to a client component or to JSON.
+//   * `moola_payments.status` is a plain integer, because ActiveRecord's `enum`
+//     stores an integer. It stays an `Int` — see MOOLA_PAYMENT_STATUS in
+//     src/lib/payments/types.ts. A Prisma `enum` would be prettier and would
+//     require a destructive column type change on a live payments table.
+//   * Nullability and index UNIQUENESS mirror db/schema.rb exactly. The rule
+//     comes from a real defect: declaring @unique where Rails has a plain index
+//     makes `prisma db push` try to add a constraint to a live table.
+//     `moola_payments.invoice_number` is the trap here — it is
+//     `NULF-CT:{cart_token}` by construction, so it LOOKS 1:1 with the unique
+//     `cart_token` in every row anyone will ever inspect. Rails' index on it is
+//     NOT unique and there is no uniqueness validation. It stays non-unique.
+//   * `companies.fluid_company_id` is NOT unique in this droplet (unlike
+//     zallevo's), and neither is `company_droplet_uuid`. Look them up with
+//     `findFirst`, never `findUnique`.
+//   * `companies.droplet_installation_uuid` has NO index in Rails and none is
+//     added here. `companies` holds one row per installation and this droplet
+//     is effectively single-tenant, so the sequential scan resolvePrincipal
+//     does per callback is not worth a DDL statement against a live payments
+//     database. Revisit if this droplet is ever installed broadly.
+//
+// Three models are ADDITIVE — the tables are created by Rails migrations in
+// this same PR (db/migrate/2026041100000{1,2}, 20260411000003) so that they
+// exist in production. The Next app runs no migration step on deploy
+// (cloudbuild-next.yml has none, on purpose: Rails owns the schema), so a table
+// that exists only as a Prisma model exists nowhere at all.
+//
+// Two models the sibling migrations have are ABSENT here, and must stay absent:
+// `Callback` and `IntegrationSetting`. This droplet forked from an older
+// template and its database has neither table. Declaring them would make
+// `prisma db push` create two empty tables in a live payments database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Rails: `companies`. One row per Fluid company that installed this droplet.
+model Company {
+  id BigInt @id @default(autoincrement())
+
+  fluidShop                String  @map("fluid_shop")
+  authenticationToken      String  @unique @map("authentication_token")
+  name                     String
+  settings                 Json?   @default("{}")
+  webhookVerificationToken String? @map("webhook_verification_token")
+  /// Plain index in Rails, NOT unique. findFirst only.
+  fluidCompanyId           BigInt  @map("fluid_company_id")
+  serviceCompanyId         String? @map("service_company_id")
+  /// THE DROPLET's uuid, identical on every installation row. Never a tenant key.
+  companyDropletUuid       String? @map("company_droplet_uuid")
+
+  // Nullable, matching Rails. `t.boolean "active", default: false` has a
+  // default but no NOT NULL, so a row written outside ActiveRecord can hold
+  // NULL. Declaring it required would make Prisma raise `Inconsistent column
+  // data` on read for that row rather than return it — a read outage, not a
+  // stricter schema.
+  active        Boolean?  @default(false)
+  uninstalledAt DateTime? @map("uninstalled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The only genuinely per-installation identifier. Tenant resolution keys on this.
+  dropletInstallationUuid String? @map("droplet_installation_uuid")
+
+  events Event[]
+
+  @@index([active])
+  @@index([companyDropletUuid])
+  @@index([fluidCompanyId])
+  @@index([fluidShop])
+  @@map("companies")
+}
+
+/// Rails: `events`. Audit trail scoped to a company.
+///
+/// Unused by this droplet's Rails app — no code reads or writes it — but mapped
+/// so the table and its foreign key from `companies` are accounted for.
+model Event {
+  id BigInt @id @default(autoincrement())
+
+  identifier String?
+  name       String?
+  payload    Json?     @default("{}")
+  timestamp  DateTime?
+  /// ActiveRecord enum: 0 pending, 1 processed, 2 failed.
+  status     Int?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  companyId BigInt  @map("company_id")
+  company   Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([identifier])
+  @@index([name])
+  @@map("events")
+}
+
+/// Rails: `moola_payments`. THE MONEY LEDGER.
+///
+/// One row per cart. It accumulates state from four independent sources — the
+/// uPayments browser return, the Moola payment webhook, the Fluid
+/// `order.external_id_synced` webhook, and the ByDesign recording run — and the
+/// `status` column is the claim that decides which of them may act next.
+///
+/// `cart_token` is the ONLY unique index. Everything else, `invoice_number`
+/// included, is a plain index. See the header note.
+model MoolaPayment {
+  id BigInt @id @default(autoincrement())
+
+  /// The join key from every direction, and the only unique one.
+  cartToken String @unique @map("cart_token")
+  /// `NULF-CT:{cart_token}`. Functionally 1:1 with cartToken, NOT unique in the schema.
+  invoiceNumber String @map("invoice_number")
+
+  fluidOrderId       String? @map("fluid_order_id")
+  bydesignOrderId    String? @map("bydesign_order_id")
+  moolaTransactionId String? @map("moola_transaction_id")
+  kycStatus          String? @map("kyc_status")
+  transactionType    String? @map("transaction_type")
+
+  /// Array of payment lines from the Moola webhook. Keyed by `id` when merged.
+  paymentDetails      Json? @default("[]") @map("payment_details")
+  cardDetails         Json? @default("{}") @map("card_details")
+  moolaWebhookPayload Json? @default("{}") @map("moola_webhook_payload")
+  fluidWebhookPayload Json? @default("{}") @map("fluid_webhook_payload")
+
+  /// ActiveRecord enum stored as Int. See MOOLA_PAYMENT_STATUS.
+  status                    Int  @default(0)
+  bydesignRecordingAttempts Int? @default(0) @map("bydesign_recording_attempts")
+
+  lastError String? @map("last_error")
+
+  matchedAt     DateTime? @map("matched_at")
+  recordedAt    DateTime? @map("recorded_at")
+  orderPostedAt DateTime? @map("order_posted_at")
+
+  /// ADDITIVE (db/migrate/20260411000003). The checkout-completion claim.
+  ///
+  /// The uPayments return lands as a browser GET that the shopper can refresh.
+  /// Rails re-ran "create a Fluid payment, then check the cart out" on every
+  /// load. This column is taken in a short transaction before either call, so a
+  /// refresh or a double-click cannot produce a second Fluid payment.
+  checkoutClaimedAt DateTime? @map("checkout_claimed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([bydesignOrderId])
+  @@index([fluidOrderId])
+  @@index([invoiceNumber])
+  @@index([moolaTransactionId])
+  @@index([status])
+  @@index([status, createdAt])
+  @@map("moola_payments")
+}
+
+/// ADDITIVE (db/migrate/20260411000002). One row per ByDesign payment that has
+/// actually been Saved.
+///
+/// `POST /api/Personal/Order/Payment/CreditCard/Save` takes no idempotency key,
+/// and whether ByDesign de-duplicates on `ReferenceNumber` is not known to this
+/// repository. So the droplet carries its own dedupe: the row is written in the
+/// same step as a successful Save and checked before every Save.
+///
+/// Without it, "record all payments for this cart" is only idempotent at the
+/// granularity of the whole cart, which is the wrong granularity — a two-line
+/// cart where one Save succeeds and the other fails leaves the row in a
+/// re-runnable state, and the re-run Saves the line that already succeeded.
+///
+/// The Rails app neither reads nor writes this table. That is a real gap during
+/// any window where both runtimes can drive the recording path; see CUTOVER.md.
+model BydesignPaymentReceipt {
+  id BigInt @id @default(autoincrement())
+
+  bydesignOrderId String @map("bydesign_order_id")
+  /// `payment_details[].id` from the Moola webhook — stable per payment line.
+  paymentDetailId String @map("payment_detail_id")
+  cartToken       String @map("cart_token")
+
+  recordedAt DateTime @map("recorded_at")
+  response   Json?    @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([bydesignOrderId, paymentDetailId])
+  @@index([cartToken])
+  @@map("bydesign_payment_receipts")
+}
+
+/// Rails: `settings`. Droplet-wide configuration, each row a JSON Schema plus
+/// values validated against it. See src/lib/settings.
+model Setting {
+  id BigInt @id @default(autoincrement())
+
+  name        String  @unique
+  description String?
+  values      Json?   @default("{}")
+  schema      Json
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+/// Rails: `users`, created by Devise. `encrypted_password` is a plain bcrypt
+/// digest — `config.pepper` is commented out and `config.stretches = 12` — so
+/// Auth.js verifies it directly and existing admin rows keep working unchanged.
+model User {
+  id BigInt @id @default(autoincrement())
+
+  email             String @unique @default("")
+  encryptedPassword String @default("") @map("encrypted_password")
+
+  resetPasswordToken  String?   @unique @map("reset_password_token")
+  resetPasswordSentAt DateTime? @map("reset_password_sent_at")
+  rememberCreatedAt   DateTime? @map("remember_created_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// Rails `t.string array: true` — a Postgres text[].
+  permissionSets String[] @default([]) @map("permission_sets")
+
+  @@map("users")
+}
+
+/// Rails: `webhooks`. A 5-column table no code in the Rails app reads or
+/// writes; template residue. Mapped so the table is accounted for. The webhooks
+/// that actually exist are the two droplet-level lifecycle ones, created from
+/// Fluid's droplet settings screen.
+model Webhook {
+  id BigInt @id @default(autoincrement())
+
+  resource String?
+  event    String?
+  active   Boolean? @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("webhooks")
+}
+
+// ---------------------------------------------------------------------------
+// Owned by @fluid-app/droplet-sdk. Copied verbatim from
+// vendor/droplet-sdk/schema/callback-registrations.prisma — keep it identical
+// across the fleet, and identical to what
+// db/migrate/20260411000001_create_fluid_callback_registrations.rb creates.
+// That migration uses `t.text`, not `t.string`, because Prisma maps `String` to
+// PostgreSQL `text` while Rails' `t.string` is `varchar(255)`.
+//
+// Only the digest is stored: Fluid presents the plaintext token on every
+// request, so a digest is enough to locate the registration, and a database
+// dump then yields no working callback credentials.
+// ---------------------------------------------------------------------------
+model FluidCallbackRegistration {
+  uuid           String @id
+  dri            String
+  definitionName String @map("definition_name")
+  tokenDigest    String @unique @map("token_digest")
+  url            String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dri])
+  @@map("fluid_callback_registrations")
+}

@@ -1,0 +1,59 @@
+# Production image for the Next.js droplet.
+#
+#   docker build -f Dockerfile.next -t droplet-newulife-payment-next:latest .
+#
+# The Rails app keeps its own docker/Dockerfile. When Rails is removed in the
+# follow-up PR this file becomes ./Dockerfile.
+#
+# No secrets are build args. DATABASE_URL, AUTH_SECRET, FLUID_WEBHOOK_AUTH_TOKEN
+# and FLUID_DROPLET_URL are injected at deploy time and never baked in — the
+# Next build compiles route handlers without evaluating runtime env, and
+# `prisma generate` needs no live database.
+
+FROM node:22-alpine AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PNPM_HOME/bin:$PATH"
+RUN corepack enable pnpm
+
+FROM base AS builder
+RUN apk add --no-cache libc6-compat openssl
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# Dependencies first, so a source-only change does not reinstall them.
+# vendor/droplet-sdk is a link: dependency, so it has to be present before
+# `pnpm install` can resolve the lockfile.
+COPY package.json pnpm-lock.yaml ./
+COPY vendor/droplet-sdk ./vendor/droplet-sdk
+RUN pnpm install --frozen-lockfile
+
+COPY prisma ./prisma
+COPY tsconfig.json ./
+COPY src ./src
+
+RUN pnpm exec prisma generate
+RUN pnpm exec next build src
+
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# `output: "standalone"` with outputFileTracingRoot pointing at the repo root
+# produces a self-contained server plus the node_modules it actually uses.
+COPY --from=builder --chown=nextjs:nodejs /app/src/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/src/.next/static ./src/.next/static
+
+USER 1001:1001
+
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "src/server.js"]

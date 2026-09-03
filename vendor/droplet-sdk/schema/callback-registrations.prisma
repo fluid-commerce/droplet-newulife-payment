@@ -1,0 +1,21 @@
+// Callback verification tokens, owned by @fluid-app/droplet-sdk.
+//
+// Paste into a droplet's schema.prisma. The shape is deliberately fixed, so it
+// stays identical wherever it is used and does not depend on the ORM.
+//
+// Only the digest is stored: Fluid presents the plaintext token on every
+// request, so a digest is enough to locate the registration, and a database
+// dump then yields no working callback credentials.
+model FluidCallbackRegistration {
+  uuid           String @id
+  dri            String
+  definitionName String @map("definition_name")
+  tokenDigest    String @unique @map("token_digest")
+  url            String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dri])
+  @@map("fluid_callback_registrations")
+}
